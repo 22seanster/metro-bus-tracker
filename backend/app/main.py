@@ -12,26 +12,58 @@ from fastapi.responses import HTMLResponse
 from .config import Settings, get_settings
 from .engine import RenderEngine
 from .providers.base import Provider
+from .providers.bus import BusProvider
+from .providers.mock import MockBusProvider, MockWeatherProvider
 from .providers.weather import WeatherProvider
+from .screens.bus import BusScreen
 from .screens.clock import ClockScreen
 from .screens.weather import WeatherScreen
 
+log = logging.getLogger(__name__)
+
 
 def build_providers(settings: Settings) -> dict[str, Provider]:
-    return {
-        "weather": WeatherProvider(
+    if settings.mock or not settings.metro_api_key:
+        if not settings.mock:
+            log.warning(
+                "METRO_API_KEY is not set - bus arrivals are MOCK data. "
+                "Get a free key at https://api-portal.ridemetro.org/ and set METRO_API_KEY."
+            )
+        bus = MockBusProvider(route_ids=settings.route_id_list)
+    else:
+        bus = BusProvider(
+            url=settings.gtfs_rt_url,
+            api_key=settings.metro_api_key,
+            stop_id=settings.stop_id,
+            route_ids=settings.route_id_list,
+            direction_id=settings.direction_id,
+            lookahead_minutes=settings.bus_lookahead_minutes,
+            interval=settings.bus_poll_seconds,
+        )
+    if settings.mock:
+        weather = MockWeatherProvider()
+    else:
+        weather = WeatherProvider(
             lat=settings.weather_lat,
             lon=settings.weather_lon,
             tz=settings.app_tz,
             interval=settings.weather_poll_seconds,
-        ),
-    }
+        )
+    return {"bus": bus, "weather": weather}
 
 
 def build_screens(settings: Settings, providers: dict[str, Provider]) -> list:
     """Ordered screen registry. The always-active clock goes last: rotation
-    falls back to the final screen when nothing else is active."""
+    falls back to the final screen when nothing else is active.
+    Phase 2 screens (e.g. Spotify now-playing) slot in here."""
     return [
+        BusScreen(
+            dwell_seconds=settings.bus_dwell_seconds,
+            provider=providers["bus"],
+            route_ids=settings.route_id_list,
+            labels=settings.route_label_map,
+            colors=settings.route_color_map,
+        ),
         WeatherScreen(dwell_seconds=settings.weather_dwell_seconds, provider=providers["weather"]),
         ClockScreen(dwell_seconds=settings.clock_dwell_seconds),
     ]
