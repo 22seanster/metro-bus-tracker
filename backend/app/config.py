@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     night_start: str = "22:00"
     night_end: str = "06:30"
 
+    # Spotify now-playing (optional; screen is registered only when configured).
+    # One shared developer app; refresh tokens minted via scripts/spotify_auth.py.
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
+    spotify_refresh_tokens: str = ""  # "sean:<token>,wife:<token>" - order = priority
+    spotify_device_allowlist: str = ""  # "Kitchen Speaker,Living Room TV"; empty = any device
+    spotify_poll_seconds: float = 30
+    spotify_dwell_seconds: int = 10
+
     log_level: str = "INFO"
 
     @property
@@ -54,6 +63,21 @@ class Settings(BaseSettings):
         else:
             labels = [r.lstrip("0") or "0" for r in ids]
         return dict(zip(ids, labels))
+
+    @property
+    def spotify_token_map(self) -> dict[str, str]:
+        """'sean:tok,wife:tok' -> ordered {account: refresh_token}."""
+        tokens = {}
+        for pair in self.spotify_refresh_tokens.split(","):
+            if ":" in pair:
+                name, token = pair.split(":", 1)
+                if name.strip() and token.strip():
+                    tokens[name.strip()] = token.strip()
+        return tokens
+
+    @property
+    def spotify_allowlist(self) -> list[str]:
+        return [d.strip() for d in self.spotify_device_allowlist.split(",") if d.strip()]
 
     @property
     def route_color_map(self) -> dict[str, str]:

@@ -13,10 +13,12 @@ from .config import Settings, get_settings
 from .engine import RenderEngine
 from .providers.base import Provider
 from .providers.bus import BusProvider
-from .providers.mock import MockBusProvider, MockWeatherProvider
+from .providers.mock import MockBusProvider, MockSpotifyProvider, MockWeatherProvider
+from .providers.spotify import SpotifyProvider
 from .providers.weather import WeatherProvider
 from .screens.bus import BusScreen
 from .screens.clock import ClockScreen
+from .screens.spotify import SpotifyScreen
 from .screens.weather import WeatherScreen
 
 log = logging.getLogger(__name__)
@@ -49,14 +51,26 @@ def build_providers(settings: Settings) -> dict[str, Provider]:
             tz=settings.app_tz,
             interval=settings.weather_poll_seconds,
         )
-    return {"bus": bus, "weather": weather}
+    providers: dict[str, Provider] = {"bus": bus, "weather": weather}
+
+    if settings.mock:
+        providers["spotify"] = MockSpotifyProvider()
+    elif settings.spotify_client_id and settings.spotify_client_secret and settings.spotify_token_map:
+        providers["spotify"] = SpotifyProvider(
+            client_id=settings.spotify_client_id,
+            client_secret=settings.spotify_client_secret,
+            refresh_tokens=settings.spotify_token_map,
+            device_allowlist=settings.spotify_allowlist,
+            interval=settings.spotify_poll_seconds,
+        )
+    return providers
 
 
 def build_screens(settings: Settings, providers: dict[str, Provider]) -> list:
     """Ordered screen registry. The always-active clock goes last: rotation
     falls back to the final screen when nothing else is active.
-    Phase 2 screens (e.g. Spotify now-playing) slot in here."""
-    return [
+    Additional screens slot in here."""
+    screens = [
         BusScreen(
             dwell_seconds=settings.bus_dwell_seconds,
             provider=providers["bus"],
@@ -65,8 +79,12 @@ def build_screens(settings: Settings, providers: dict[str, Provider]) -> list:
             colors=settings.route_color_map,
         ),
         WeatherScreen(dwell_seconds=settings.weather_dwell_seconds, provider=providers["weather"]),
-        ClockScreen(dwell_seconds=settings.clock_dwell_seconds),
     ]
+    if "spotify" in providers:
+        screens.append(SpotifyScreen(dwell_seconds=settings.spotify_dwell_seconds,
+                                     provider=providers["spotify"]))
+    screens.append(ClockScreen(dwell_seconds=settings.clock_dwell_seconds))
+    return screens
 
 
 def create_app() -> FastAPI:

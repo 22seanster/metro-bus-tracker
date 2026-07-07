@@ -115,7 +115,38 @@ MOCK=true uvicorn app.main:app --reload --app-dir backend   # preview at localho
 CI builds and pushes a multi-arch (amd64 + arm64) image to
 `ghcr.io/22seanster/metro-bus-tracker:latest` on every push to `main`.
 
-### Adding a screen (Phase 2: Spotify now-playing)
+## Spotify now-playing screen (optional)
+
+Shows album art + track/artist whenever you (or another configured account) are
+playing Spotify **on a home device**. The screen stays out of the rotation
+otherwise.
+
+One-time setup (~10 min):
+
+1. Go to <https://developer.spotify.com/dashboard> → **Create app**.
+   Set Redirect URI to exactly `http://127.0.0.1:8765/callback`.
+   Note the **Client ID** and **Client Secret** (under app Settings).
+2. For a second person: app **Settings → User Management** → add their
+   Spotify account email.
+3. On your computer, run `python scripts/spotify_auth.py`, paste the client
+   id/secret, log in when the browser opens, and copy the printed refresh
+   token. Repeat in a **private browser window** for the second account.
+4. Set the stack env vars in Portainer and update:
+
+   ```
+   SPOTIFY_CLIENT_ID=<client id>
+   SPOTIFY_CLIENT_SECRET=<client secret>
+   SPOTIFY_REFRESH_TOKENS=sean:<token>,wife:<token>
+   SPOTIFY_DEVICE_ALLOWLIST=Kitchen Speaker,Living Room TV
+   ```
+
+   `SPOTIFY_REFRESH_TOKENS` order = priority if both accounts are playing.
+   `SPOTIFY_DEVICE_ALLOWLIST` is a case-insensitive substring match on the
+   playing device's name (see device names in Spotify's device picker);
+   leave it empty to show no matter where you're listening. `/status` shows
+   what the provider sees.
+
+### Adding a screen
 
 1. New provider in `backend/app/providers/` (subclass `Provider`, implement
    `fetch()`; OAuth token refresh lives inside it).

@@ -5,8 +5,11 @@ METRO_API_KEY is unset. Values derive from the wall clock, so arrivals
 genuinely count down and refresh like the real thing.
 """
 
+from PIL import Image
+
 from .base import Provider
 from .bus import Arrival, ArrivalStatusMixin
+from .spotify import ART_SIZE, NowPlaying
 from .weather import Weather
 
 
@@ -45,3 +48,30 @@ class MockWeatherProvider(Provider):
         codes = [0, 1, 2, 3, 61, 95]
         code = codes[int(self.clock() / 300) % len(codes)]  # new condition every 5 min
         return Weather(temp_f=temp, hi_f=95, lo_f=78, wmo_code=code)
+
+
+class MockSpotifyProvider(Provider):
+    name = "spotify"
+    is_mock = True
+
+    TRACKS = [
+        ("Texas Sun", "Khruangbin, Leon Bridges", (198, 108, 58)),
+        ("Tejano Blue", "Cigarettes After Sex", (70, 90, 160)),
+        ("Houston Old Head", "Bun B", (60, 140, 90)),
+    ]
+
+    def __init__(self, interval: float = 30, **kw):
+        super().__init__(interval=interval, stale_factor=3, **kw)
+
+    def _art(self, base: tuple[int, int, int]) -> Image.Image:
+        img = Image.new("RGB", (ART_SIZE, ART_SIZE))
+        for y in range(ART_SIZE):
+            shade = 0.5 + y / (2 * ART_SIZE)
+            for x in range(ART_SIZE):
+                img.putpixel((x, y), tuple(min(255, int(c * shade)) for c in base))
+        return img
+
+    async def fetch(self) -> NowPlaying:
+        track, artists, color = self.TRACKS[int(self.clock() / 120) % len(self.TRACKS)]
+        return NowPlaying(account="mock", track=track, artists=artists, art_url=None,
+                          device_name="Kitchen Speaker", is_playing=True, art=self._art(color))

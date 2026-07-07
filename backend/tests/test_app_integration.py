@@ -37,10 +37,11 @@ def test_frame_bin_valid(client):
 def test_status_reports_mock_and_all_screens_active(client):
     s = client.get("/status").json()
     assert s["mock"] is True
-    assert s["screens"] == ["bus", "weather", "clock"]
-    assert set(s["active_screens"]) == {"bus", "weather", "clock"}
+    assert s["screens"] == ["bus", "weather", "spotify", "clock"]
+    assert set(s["active_screens"]) == {"bus", "weather", "spotify", "clock"}
     assert s["providers"]["bus"]["mock"] is True
     assert s["providers"]["weather"]["mock"] is True
+    assert s["providers"]["spotify"]["mock"] is True
     assert s["providers"]["bus"]["error"] is None
 
 
