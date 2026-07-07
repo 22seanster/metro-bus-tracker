@@ -21,6 +21,20 @@ def _fit(text: str, font, max_w: int) -> str:
     return text.rstrip() + ".."
 
 
+def wrap_track(track: str, max_w: int, font=None) -> tuple[str, str]:
+    """Wrap onto up to two lines, preserving word order; line 2 is truncated."""
+    font = font or fonts.tiny()
+    words = track.split()
+    line1_words: list[str] = []
+    while words:
+        candidate = " ".join(line1_words + [words[0]])
+        if text_width(candidate, font) > max_w and line1_words:
+            break
+        line1_words.append(words.pop(0))
+    line2 = _fit(" ".join(words), font, max_w) if words else ""
+    return " ".join(line1_words), line2
+
+
 class SpotifyScreen:
     name = "spotify"
 
@@ -43,15 +57,7 @@ class SpotifyScreen:
 
         tiny = fonts.tiny()
         # Track: up to two tiny lines, then artist line in Spotify green
-        words = np.track.split()
-        line1, line2 = "", ""
-        for w in words:
-            candidate = f"{line1} {w}".strip()
-            if text_width(candidate, tiny) <= TEXT_W:
-                line1 = candidate
-            else:
-                line2 = f"{line2} {w}".strip()
-        line2 = _fit(line2, tiny, TEXT_W) if line2 else ""
+        line1, line2 = wrap_track(np.track, TEXT_W, tiny)
 
         y = 6 if line2 else 9
         draw.text((TEXT_X, y), line1, font=tiny, fill=TRACK_COLOR)
