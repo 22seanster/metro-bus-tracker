@@ -1,0 +1,33 @@
+[project]
+name = "metro-bus-tracker"
+version = "0.1.0"
+description = "Renders 64x32 LED matrix frames with Houston METRO bus arrivals, weather, and clock"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pillow>=10.4",
+    "httpx>=0.27",
+    "gtfs-realtime-bindings>=1.0.0",
+    "pydantic-settings>=2.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["fonts/*.bdf", "preview/*.html"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

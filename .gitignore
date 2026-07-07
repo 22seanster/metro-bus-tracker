@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local env
+.env
