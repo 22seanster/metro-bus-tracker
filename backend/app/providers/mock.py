@@ -6,11 +6,11 @@ genuinely count down and refresh like the real thing.
 """
 
 from .base import Provider
-from .bus import Arrival
+from .bus import Arrival, ArrivalStatusMixin
 from .weather import Weather
 
 
-class MockBusProvider(Provider):
+class MockBusProvider(ArrivalStatusMixin, Provider):
     name = "bus"
     is_mock = True
 

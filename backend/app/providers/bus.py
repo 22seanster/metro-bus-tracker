@@ -54,7 +54,18 @@ def parse_trip_updates(
     return sorted(arrivals, key=lambda a: a.epoch)
 
 
-class BusProvider(Provider):
+class ArrivalStatusMixin:
+    """Adds the upcoming arrivals to /status for easy eyeball verification."""
+
+    def status(self) -> dict:
+        s = super().status()
+        s["arrivals"] = [
+            {"route": a.route_id, "minutes": a.minutes} for a in (self.snapshot() or [])
+        ]
+        return s
+
+
+class BusProvider(ArrivalStatusMixin, Provider):
     name = "bus"
 
     def __init__(self, url: str, api_key: str, stop_id: str, route_ids: list[str],
