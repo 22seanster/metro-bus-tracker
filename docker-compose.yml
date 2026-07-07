@@ -1,0 +1,15 @@
+# Portainer CE: Stacks -> Add stack -> paste this (or point at the git repo).
+# Set METRO_API_KEY in the stack's environment variables section once you have
+# a key from https://api-portal.ridemetro.org/ - until then bus data is mocked.
+services:
+  bus-tracker:
+    image: ghcr.io/22seanster/metro-bus-tracker:latest
+    container_name: metro-bus-tracker
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    environment:
+      METRO_API_KEY: ${METRO_API_KEY:-}
+      APP_TZ: America/Chicago
+      # Defaults target stop 3216 (Lorraine St @ Cochran, inbound to Downtown TC),
+      # routes 51/52. Override STOP_ID / ROUTE_IDS / DIRECTION_ID etc. here if needed.
