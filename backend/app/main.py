@@ -6,11 +6,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Query, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi.responses import FileResponse, HTMLResponse
 
 from .config import Settings, get_settings
 from .engine import RenderEngine
+from . import ota
 from .providers.base import Provider
 from .providers.bus import BusProvider
 from .providers.mock import MockBusProvider, MockSpotifyProvider, MockWeatherProvider
@@ -113,6 +114,21 @@ def create_app() -> FastAPI:
     def frame_bin() -> Response:
         return Response(content=engine.frame_bytes(), media_type="application/octet-stream")
 
+    @app.get("/firmware/latest.json")
+    def firmware_latest() -> dict:
+        info = ota.firmware_status(ota.FIRMWARE_DIR)
+        if not info["present"]:
+            raise HTTPException(status_code=404, detail="no firmware bundled")
+        return {"build": info["build"], "sha": info["sha"]}
+
+    @app.get("/firmware.bin")
+    def firmware_bin_download() -> FileResponse:
+        path = ota.firmware_bin_path(ota.FIRMWARE_DIR)
+        if path is None:
+            raise HTTPException(status_code=404, detail="no firmware bundled")
+        return FileResponse(path, media_type="application/octet-stream",
+                            filename="firmware.bin")
+
     @app.get("/frame.png")
     def frame_png(scale: int = Query(default=8, ge=1, le=16)) -> Response:
         img, _ = engine.render()
@@ -136,6 +152,7 @@ def create_app() -> FastAPI:
             "active_screens": [s.name for s in engine.screens if s.is_active(engine.now())],
             "brightness": brightness,
             "mock": settings.mock,
+            "firmware": ota.firmware_status(ota.FIRMWARE_DIR),
             "providers": {name: p.status() for name, p in providers.items()},
         }
 
