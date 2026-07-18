@@ -85,7 +85,12 @@ firmware boots into a *pending* OTA partition and only marks itself permanently
 valid after it (a) reconnects WiFi and (b) fetches one frame successfully. If a
 bad build panics or can't reach the backend before validating, the bootloader
 automatically reverts to the previous firmware on the next reset. A bad OTA
-cannot brick the device.
+cannot brick the device. This is not just a best-effort app-side handshake —
+`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` is already set in the Arduino
+ESP32-S3 sdkconfig shipped with `framework-arduinoespressif32` (verified in
+`tools/sdk/esp32s3/sdkconfig` and the per-flash-mode `sdkconfig.h` variants),
+so the stock Arduino bootloader has the rollback-enabled bootloader this
+depends on; no custom ESP-IDF bootloader build is needed.
 
 This requires an OTA-capable partition table (two app slots + otadata); set
 explicitly via `board_build.partitions` in `platformio.ini`. The app is tiny

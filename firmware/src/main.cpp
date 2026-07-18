@@ -222,7 +222,10 @@ static bool fetchServerRelease(const char *baseUrl, long *build, char *sha, size
 
   if (doc["build"].isNull() || doc["sha"].isNull() || !doc["sha"].is<const char *>()) return false;
   const char *shaVal = doc["sha"].as<const char *>();
-  if (shaVal == nullptr) return false;
+  // Reject a null or empty sha: "" doubles as the "no abandon record"
+  // sentinel (see otaFailSha below), so an empty-sha release would collide
+  // with that sentinel and could get permanently stuck at the retry cap.
+  if (shaVal == nullptr || shaVal[0] == '\0') return false;
 
   *build = doc["build"].as<long>();
   strncpy(sha, shaVal, shaSize - 1);
