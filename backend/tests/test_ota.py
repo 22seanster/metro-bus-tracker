@@ -85,3 +85,59 @@ def test_status_firmware_block_present(client):
     c, d = client
     _write_release(d, 99, "cafef00")
     assert c.get("/status").json()["firmware"] == {"present": True, "build": 99, "sha": "cafef00"}
+
+
+# --- edge case tests (review findings) ----------------------------------------
+
+def test_status_invalid_json_degrades_gracefully(tmp_path):
+    """Corrupted latest.json returns absent stub, not crash."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (tmp_path / "latest.json").write_text("{invalid json")
+    result = ota.firmware_status(tmp_path)
+    assert result == {"present": False, "build": None, "sha": None}
+
+
+def test_status_missing_build_key_degrades_gracefully(tmp_path):
+    """latest.json missing 'build' key returns absent stub."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (tmp_path / "latest.json").write_text(json.dumps({"sha": "abc123"}))
+    result = ota.firmware_status(tmp_path)
+    assert result == {"present": False, "build": None, "sha": None}
+
+
+def test_status_missing_sha_key_degrades_gracefully(tmp_path):
+    """latest.json missing 'sha' key returns absent stub."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (tmp_path / "latest.json").write_text(json.dumps({"build": 42}))
+    result = ota.firmware_status(tmp_path)
+    assert result == {"present": False, "build": None, "sha": None}
+
+
+def test_bin_path_requires_latest_json(tmp_path):
+    """firmware.bin alone (without latest.json) returns None."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    result = ota.firmware_bin_path(tmp_path)
+    assert result is None
+
+
+def test_endpoint_firmware_bin_404_when_only_bin_exists(client):
+    """GET /firmware.bin returns 404 when latest.json is missing."""
+    c, d = client
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    assert c.get("/firmware.bin").status_code == 404
+
+
+def test_endpoint_status_200_when_latest_json_corrupted(client):
+    """GET /status returns 200 with present:false even if latest.json is corrupted."""
+    c, d = client
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (d / "latest.json").write_text("{bad json}")
+    r = c.get("/status")
+    assert r.status_code == 200
+    assert r.json()["firmware"] == {"present": False, "build": None, "sha": None}
