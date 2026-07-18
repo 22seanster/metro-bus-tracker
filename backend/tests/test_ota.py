@@ -141,3 +141,22 @@ def test_endpoint_status_200_when_latest_json_corrupted(client):
     r = c.get("/status")
     assert r.status_code == 200
     assert r.json()["firmware"] == {"present": False, "build": None, "sha": None}
+
+
+def test_bin_path_invalid_json_returns_none(tmp_path):
+    """firmware.bin + corrupted latest.json returns None (delegation to firmware_status)."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (tmp_path / "latest.json").write_text("{invalid json")
+    result = ota.firmware_bin_path(tmp_path)
+    assert result is None
+
+
+def test_endpoint_firmware_bin_404_when_latest_json_corrupted(client):
+    """GET /firmware.bin returns 404 when latest.json is corrupted."""
+    c, d = client
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "firmware.bin").write_bytes(b"\x00\x01FIRMWARE")
+    (d / "latest.json").write_text("{corrupted json}")
+    r = c.get("/firmware.bin")
+    assert r.status_code == 404

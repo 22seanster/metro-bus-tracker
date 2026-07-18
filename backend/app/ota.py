@@ -26,7 +26,7 @@ def firmware_status(firmware_dir: Path = FIRMWARE_DIR) -> dict:
 
 
 def firmware_bin_path(firmware_dir: Path = FIRMWARE_DIR) -> Path | None:
-    """Path to the bundled binary, or None if not present."""
-    meta = firmware_dir / "latest.json"
-    binf = firmware_dir / "firmware.bin"
-    return binf if (meta.exists() and binf.exists()) else None
+    """Path to the bundled binary, or None if there is no valid release."""
+    if not firmware_status(firmware_dir)["present"]:
+        return None
+    return firmware_dir / "firmware.bin"
