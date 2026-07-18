@@ -57,6 +57,10 @@ char frameUrl[128] = "http://192.168.1.100:8000/frame.bin";
 uint8_t pixelBuf[PIXEL_BYTES];
 uint8_t failures = 0;
 bool paramsDirty = false;
+// False when the HUB75 DMA engine failed to initialise. Drawing is skipped in
+// that state, but WiFi and the OTA check still run — a bad build that breaks
+// the panel can then be replaced over the air instead of needing a USB cable.
+bool displayReady = false;
 
 static void initDisplay() {
 #ifdef BOARD_S3
@@ -71,13 +75,24 @@ static void initDisplay() {
   HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1, pins);
 #endif
   display = new MatrixPanel_I2S_DMA(cfg);
-  display->begin();
+  // Waveshare's own Arduino example checks this return value: begin() allocates
+  // the DMA buffers and fails if there is not enough (internal) RAM. PSRAM is
+  // not enabled on this board target, so that allocation comes out of the
+  // ~512 KB internal SRAM and a failure here is the realistic one. Without this
+  // check a failure looks identical to dead hardware — a black panel, no clue.
+  displayReady = display->begin();
+  if (!displayReady) {
+    Serial.println("FATAL: HUB75 DMA memory allocation failed (begin() returned "
+                   "false); panel disabled, continuing so WiFi/OTA still run");
+    return;
+  }
   display->setBrightness8(128);
   display->clearScreen();
   display->setTextColor(display->color565(255, 255, 255));
 }
 
 static void showMessage(const char *line1, const char *line2 = nullptr) {
+  if (!displayReady) return;
   display->clearScreen();
   display->setCursor(2, 4);
   display->print(line1);
@@ -148,14 +163,21 @@ static bool fetchAndBlit() {
   http.end();
   if (received != PIXEL_BYTES) return false;
 
-  display->setBrightness8(brightness);
-  for (uint16_t y = 0; y < PANEL_H; y++) {
-    for (uint16_t x = 0; x < PANEL_W; x++) {
-      size_t i = 2 * (y * PANEL_W + x);
-      uint16_t color = pixelBuf[i] | (pixelBuf[i + 1] << 8); // little-endian
-      display->drawPixel(x, y, color);
+  if (displayReady) {
+    display->setBrightness8(brightness);
+    for (uint16_t y = 0; y < PANEL_H; y++) {
+      for (uint16_t x = 0; x < PANEL_W; x++) {
+        size_t i = 2 * (y * PANEL_W + x);
+        uint16_t color = pixelBuf[i] | (pixelBuf[i + 1] << 8); // little-endian
+        display->drawPixel(x, y, color);
+      }
     }
   }
+  // Deliberately still true when the panel is dead: a complete frame did arrive.
+  // This is what lets markFirmwareValidIfPending() confirm a freshly-OTA'd image.
+  // Returning false here would leave every new image unvalidated, so the
+  // bootloader would roll it back and the device would re-download it forever —
+  // and a failed begin() is a memory/hardware condition a rollback cannot fix.
   return true;
 }
 
@@ -279,7 +301,7 @@ static void checkForUpdate() {
   // The download is the worst case for S3 WiFi-vs-DMA EMI: quiet the panel.
   // NOTE: stopDMAoutput() is one-way in this library version — the panel stays
   // black until reboot — so every path below this line must end in a reboot.
-  display->stopDMAoutput();
+  if (displayReady) display->stopDMAoutput();
   WiFiClient client;
   httpUpdate.rebootOnUpdate(true);             // reboots into new image on success
   t_httpUpdate_return ret = httpUpdate.update(client, binUrl);

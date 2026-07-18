@@ -183,6 +183,59 @@ fetches become flaky once the panel is lit, mitigations in order:
 
 This is the main open unknown in the hardware plan; validate it before finishing the enclosure.
 
+## Vendor documentation cross-check (2026-07-18)
+
+The firmware decisions above were checked against Waveshare's official wiki
+([overview](https://docs.waveshare.com/ESP32-S3-RGB-Matrix),
+[instructions](https://docs.waveshare.com/ESP32-S3-RGB-Matrix/Instructions-For-Use),
+[Arduino setup](https://docs.waveshare.com/ESP32-S3-RGB-Matrix/Development-Environment-Setup-Arduino),
+[FAQ](https://docs.waveshare.com/ESP32-S3-RGB-Matrix/FAQ)).
+
+**Confirmed by the vendor:**
+
+- **`SHIFTREG` is mandatory for P4.** Verbatim: *"be sure to add
+  `mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;` in the code, otherwise display
+  anomalies may occur."* Their example also leaves `FM6126A` commented out.
+- **Do not hardcode HUB75 pins.** Verbatim: *"Keep ESP32-S3 default HUB75
+  mapping to avoid Flash/PSRAM reserved pins."* Note that **no HUB75 GPIO table
+  is published on any page of the wiki** — the overview, Resources, and ESP-IDF
+  pages all omit one. Hardcoding pins would be guesswork against reserved
+  flash/PSRAM lines, so relying on the library defaults is the only safe path.
+  (The table in §2 above comes from the DMA library source, not from Waveshare.)
+- **USB-C is the intended power source, not just a flashing cable.** The
+  Instructions page lists the required PSU as *"PSU-27W-USB-C-EU-B x 1 USB Type-C
+  charger."* This supersedes an earlier claim in this document that USB-C was
+  flashing-only and would brown out the panel — that was wrong. The board is
+  also documented as programmed over USB, consistent with `USB` (flashing) and
+  `POWER` (supply) being separate ports.
+- **Default brightness 128** matches the vendor's stated default.
+
+**Operational facts worth knowing (from the FAQ):**
+
+- **Brownout threshold:** *"the USB supply voltage should be above 4.9V."* Below
+  that, the board resets in a loop and the USB port re-enumerates repeatedly.
+  That symptom means power, not firmware.
+- **Download-mode recovery** when flashing fails: hold **BOOT**, press and
+  release **RESET**, release **BOOT**.
+- A reset loop after upload can also mean *"the additional screen power supply"*
+  (the VH4 pigtail) is not connected.
+
+**Open discrepancy — Arduino core version:**
+
+Waveshare's Arduino page specifies core **esp32 by Espressif Systems 3.3.7**.
+This project pins `platform = espressif32@7.0.1`, which resolves to
+`framework-arduinoespressif32 3.20017.241212` — Arduino core **2.0.17**
+(confirmed via `ESP_ARDUINO_VERSION_MAJOR/MINOR/PATCH` in
+`cores/esp32/esp_arduino_version.h`). That is a full major version behind: 2.x
+is built on ESP-IDF 4.4, 3.x on ESP-IDF 5.x.
+
+It compiles cleanly and the S3 GDMA code path is active, so this is not known to
+be a problem — but it is an untested combination for this board. **If the panel
+misbehaves in a way the wiring doesn't explain, this is the first thing to
+change.** Bumping it crosses an ESP-IDF major version and would put the
+`esp_ota_*` rollback calls, `HTTPUpdate`, and WiFiManager back in play, so it
+needs a full rebuild and re-verification rather than a one-line edit.
+
 ## Assembly & first-boot notes — **VERIFIED ON HARDWARE**
 
 This is the sequence that actually worked. Do steps 1–3 with **nothing plugged in**.

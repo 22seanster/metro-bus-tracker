@@ -81,6 +81,24 @@ PLATFORMIO_BUILD_FLAGS="-D FW_BUILD=$(git rev-list --count HEAD) -D FW_SHA='\"'$
 
 (For the classic-ESP32 fallback board, use `-e esp32dev` instead.)
 
+**If the upload fails to connect to the serial port**, put the board in download
+mode by hand — per Waveshare's FAQ: hold **BOOT**, press and release **RESET**,
+then release **BOOT**, and retry the upload. This resolves most flashing
+problems on this board.
+
+### Troubleshooting the first boot
+
+Watch the serial monitor at 115200 baud. The firmware prints
+`boot: build=<n> sha=<s>` as its first line, so you can always tell which build
+a device is actually running.
+
+| Symptom | Likely cause |
+|---|---|
+| `FATAL: HUB75 DMA memory allocation failed` on serial, panel black | The DMA buffers didn't fit in internal SRAM. WiFi and OTA still run, so a fix can be pushed over the air. |
+| Board resets in a loop, USB port keeps re-enumerating | Supply voltage sagging. Waveshare's FAQ: the USB supply must stay **above 4.9 V**. Use the specified 27 W USB-C charger. |
+| Display misaligned, torn, or showing garbage | Panel geometry or driver mismatch — check the `SHIFTREG` driver setting, which this P4 panel requires. |
+| Panel blank but serial shows frames fetching | Check the 16-pin ribbon seating and the separate panel power lead. |
+
 ### First boot
 
 1. The panel shows **WIFI SETUP** and the ESP32 opens an access point
