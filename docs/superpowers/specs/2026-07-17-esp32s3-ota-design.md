@@ -136,6 +136,25 @@ LAN-present attacker impersonating the backend to push firmware — low stakes f
 a kitchen bus clock, and signing adds real complexity (key management, secure
 boot / bootloader config). It can be added later without disturbing this design.
 
+**Widened threat model (setup portal).** The WiFiManager setup portal
+(`BusTracker-Setup`) is an **open, passwordless AP** that opens for 5 minutes
+whenever stored WiFi credentials fail to connect — e.g. after a router reboot,
+router replacement, or password change, not just first boot. Because
+`checkForUpdate()` derives the firmware host from the portal-settable frame
+URL, an attacker with RF proximity during one of these windows could join the
+portal, point the frame URL at a host they control, and have the device pull
+and flash arbitrary firmware on its next OTA check — persistent code
+execution, not just a spoofed frame. This is broader than the
+originally-stated "LAN-present attacker" model above, since it requires only
+physical/RF proximity during a credential-failure window, not LAN access.
+
+This is **accepted**: it's a kitchen bus clock, and the alternative — a
+portal password — turns a simple router swap into a "grab a USB cable and
+reflash it" trip for the owner, since a forgotten portal password would lock
+them out of ever reconfiguring the device over the air. Adding an AP password
+to the `autoConnect()` call remains an easy future hardening step if the
+threat model changes (e.g. the device leaves a trusted location).
+
 ## Part 6 — Testing
 
 - **Backend:** unit tests for `/firmware/latest.json`, `/firmware.bin` (present

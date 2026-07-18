@@ -55,43 +55,31 @@ Laptop (Portainer/Docker)                     ESP32 + HUB75 panel
 | `NIGHT_START` / `NIGHT_END` | `22:00` / `06:30` | Night-dimming window (local time) |
 
 Endpoints: `/` preview page · `/frame.png?scale=8` · `/frame.bin` (ESP32) ·
-`/status` · `/healthz`.
+`/firmware.bin` · `/firmware/latest.json` · `/status` · `/healthz`.
 
 ## 2. Build the device
 
-### Parts (~$40)
+### Parts and wiring
 
-| Part | Notes |
-|---|---|
-| ESP32 dev board | Classic ESP32-WROOM-32 devkit ("ESP32 DevKitC / NodeMCU-32S", 38-pin) |
-| 64x32 RGB LED matrix, HUB75 | P4 (256x128 mm) or P5 (320x160 mm) pitch — pick by case size |
-| 5V power supply, ≥4A | Powers the panel (barrel or screw terminals) + ESP32 via 5V/VIN |
-| Female-female dupont jumpers | Or an IDC ribbon + breakout for cleaner wiring |
-| Wood/3D-printed case + diffuser | LED acrylic or even a paper diffuser mellows the pixels nicely |
-
-### Wiring (HUB75 connector → ESP32)
-
-| HUB75 | ESP32 | HUB75 | ESP32 |
-|---|---|---|---|
-| R1 | 25 | A | 23 |
-| G1 | 26 | B | 19 |
-| B1 | 27 | C | 5 |
-| R2 | 14 | D | 17 |
-| G2 | 12 | E | *(unused on 64x32)* |
-| B2 | 13 | LAT | 4 |
-| GND | GND | OE | 15 |
-| | | CLK | 16 |
-
-Power the panel's 5V input directly from the PSU (not from the ESP32), and
-share ground between PSU, panel, and ESP32.
+See **[`HARDWARE.md`](HARDWARE.md)** for the authoritative bill of materials
+and wiring/pin reference — the device is built on a Waveshare
+ESP32-S3-RGB-Matrix driver board + a 64x32 P4 panel, no-solder. It also covers
+the reasoning behind each part and the alternatives that were rejected.
 
 ### Flash the firmware
+
+The default PlatformIO env (`esp32-s3`) targets the S3 board above. A plain
+`pio run -t upload` compiles with `FW_BUILD=0`, which makes the device treat
+*any* server build as newer and immediately OTA-replace itself — inject the
+build number the same way CI does so you can actually test a local change:
 
 ```bash
 pip install platformio
 cd firmware
-pio run -t upload        # ESP32 connected via USB
+PLATFORMIO_BUILD_FLAGS="-D FW_BUILD=$(git rev-list --count HEAD) -D FW_SHA='\"'$(git rev-parse --short HEAD)'\"'" pio run -e esp32-s3 -t upload
 ```
+
+(For the classic-ESP32 fallback board, use `-e esp32dev` instead.)
 
 ### First boot
 
@@ -102,6 +90,30 @@ pio run -t upload        # ESP32 connected via USB
    **Backend frame URL** to `http://<laptop-ip>:8000/frame.bin`.
 4. Save — the device reboots and mirrors the browser preview from then on.
    If the backend goes down it shows **NO LINK** and recovers automatically.
+
+## Updating the device (OTA)
+
+Once a device has been flashed once over USB, it never needs a cable again:
+
+1. Push to `main`. CI builds and tests the backend, builds `firmware.bin` for
+   the `esp32-s3` env, and bakes both it and `firmware/latest.json` into the
+   backend Docker image.
+2. Redeploy the stack in Portainer (pull the new image, recreate the
+   container).
+3. Every device checks `/firmware/latest.json` every 15 minutes (plus once
+   ~30s after boot) and, if the server's `build` number is strictly greater
+   than its own, downloads and flashes `/firmware.bin`, then reboots into it.
+
+A failed update (interrupted transfer, out-of-space, etc.) retries at most
+**3 times per build**; after that the device gives up on that specific build
+number (logged over serial) so a persistently broken build can't loop the
+device forever. A newer build is always retried fresh.
+
+To check what the **backend is serving**, hit `/status` and look at the
+`firmware` block (`build`, `sha`, whether a binary is present) — this is the
+server's build, not any particular device's. To check what a **device is
+running**, connect a serial console (115200 baud) and read the boot line:
+`boot: build=<n> sha=<short>`.
 
 ## Development
 
