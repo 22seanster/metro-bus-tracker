@@ -9,9 +9,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse, HTMLResponse
 
+from . import ota
 from .config import Settings, get_settings
 from .engine import RenderEngine
-from . import ota
 from .providers.base import Provider
 from .providers.bus import BusProvider
 from .providers.mock import MockBusProvider, MockSpotifyProvider, MockWeatherProvider

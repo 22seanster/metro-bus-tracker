@@ -28,6 +28,14 @@
 #define FW_SHA "dev"          // CI overrides via -D FW_SHA=<short sha>
 #endif
 
+// Stringify helpers so the build identity is embedded in the binary itself.
+#define _FW_STR(x) #x
+#define FW_STR(x) _FW_STR(x)
+// CI greps this marker to prove the compiled-in build number matches the
+// build number it advertises in latest.json. Never remove it.
+static const char FW_VERSION_MARKER[] __attribute__((used)) =
+    "FWID build=" FW_STR(FW_BUILD) " sha=" FW_SHA;
+
 static const uint16_t PANEL_W = 64;
 static const uint16_t PANEL_H = 32;
 static const uint32_t POLL_MS = 3000;
@@ -38,6 +46,7 @@ static const uint32_t OTA_CHECK_MS = 15UL * 60UL * 1000UL; // 15 min
 static const uint32_t OTA_FIRST_CHECK_MS = 30UL * 1000UL;  // ~30 s after boot
 static uint32_t nextOtaCheck = OTA_FIRST_CHECK_MS;
 static bool firmwareValidated = false;
+static const uint8_t MAX_OTA_ATTEMPTS = 3;
 
 static const size_t HEADER_SIZE = 8;
 static const size_t PIXEL_BYTES = PANEL_W * PANEL_H * 2;
@@ -202,13 +211,35 @@ static long fetchServerBuild(const char *baseUrl) {
 
 static void checkForUpdate() {
   char base[128];
-  if (!baseUrlFromFrameUrl(frameUrl, base, sizeof(base))) return;
+  if (!baseUrlFromFrameUrl(frameUrl, base, sizeof(base))) {
+    Serial.println("OTA: disabled - frame URL doesn't end in /frame.bin, can't derive firmware host");
+    return;
+  }
 
   long serverBuild = fetchServerBuild(base);
   if (serverBuild < 0) return;                 // no server firmware / error
   if (serverBuild <= FW_BUILD) return;         // strictly-greater rule
 
-  Serial.printf("OTA: server build %ld > mine %d; updating\n", serverBuild, FW_BUILD);
+  // Track repeated failures per server build so a poisoned build can't wear
+  // out flash with an endless download/flash/reboot loop, while a genuinely
+  // new build is always retried from a clean slate.
+  int otaFailBuild = prefs.getInt("otaFailBuild", -1);
+  int otaFailCount = prefs.getInt("otaFailCount", 0);
+  if ((long)otaFailBuild != serverBuild) {
+    otaFailBuild = (int)serverBuild;
+    otaFailCount = 0;
+  }
+  if (otaFailCount >= MAX_OTA_ATTEMPTS) {
+    Serial.printf("OTA: build %ld failed %u times; giving up until a new build appears\n",
+                  serverBuild, otaFailCount);
+    return;
+  }
+  otaFailCount++;
+  prefs.putInt("otaFailBuild", otaFailBuild);
+  prefs.putInt("otaFailCount", otaFailCount);
+
+  Serial.printf("OTA: server build %ld > mine %d; updating (attempt %u/%u)\n",
+                serverBuild, FW_BUILD, otaFailCount, MAX_OTA_ATTEMPTS);
   showMessage("UPDATING", "...");
 
   char binUrl[160];
@@ -233,8 +264,21 @@ static void checkForUpdate() {
 
 void setup() {
   Serial.begin(115200);
+  Serial.printf("boot: build=%d sha=%s\n", FW_BUILD, FW_SHA);
+  // __attribute__((used)) keeps the compiler from dropping FW_VERSION_MARKER,
+  // but this toolchain's linker runs with --gc-sections, which can still
+  // discard an otherwise-unreferenced rodata section. Actually reading the
+  // symbol here (not just the macro values) guarantees it survives into the
+  // final binary, where CI's `strings | grep` check depends on finding it.
+  Serial.println(FW_VERSION_MARKER);
   initDisplay();
   setupWiFi();
+
+  // If the last boot left a nonzero OTA failure count behind, this device
+  // just failed an update - don't hammer it again 30s after reboot.
+  if (prefs.getInt("otaFailCount", 0) > 0) {
+    nextOtaCheck = OTA_CHECK_MS;
+  }
 }
 
 void loop() {
@@ -257,8 +301,12 @@ void loop() {
   // small while millis() is still large, causing the check to fire repeatedly
   // until millis() also wraps ~15 min later.
   if ((int32_t)(millis() - nextOtaCheck) >= 0) {
-    nextOtaCheck = millis() + OTA_CHECK_MS;
-    if (WiFi.status() == WL_CONNECTED) checkForUpdate();
+    if (WiFi.status() == WL_CONNECTED) {
+      nextOtaCheck = millis() + OTA_CHECK_MS;
+      checkForUpdate();
+    }
+    // else: leave nextOtaCheck as-is so a check skipped due to WiFi being
+    // momentarily down retries promptly instead of waiting a full 15 min.
   }
 
   delay(POLL_MS);

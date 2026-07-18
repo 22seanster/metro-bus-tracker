@@ -32,13 +32,15 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install PlatformIO
-        run: pip install platformio
+        run: pip install platformio==6.1.19
       - name: Build firmware
         run: |
           BUILD=$(git rev-list --count HEAD)
           SHA=$(git rev-parse --short HEAD)
           cd firmware
           PLATFORMIO_BUILD_FLAGS="-D FW_BUILD=${BUILD} -D FW_SHA='\"${SHA}\"'" pio run -e esp32-s3
+          strings .pio/build/esp32-s3/firmware.bin | grep -q "FWID build=${BUILD} " \
+            || { echo "FATAL: compiled FW_BUILD does not match ${BUILD}"; exit 1; }
           mkdir -p ../backend/app/firmware
           cp .pio/build/esp32-s3/firmware.bin ../backend/app/firmware/firmware.bin
           printf '{"build": %s, "sha": "%s"}\n' "${BUILD}" "${SHA}" \
