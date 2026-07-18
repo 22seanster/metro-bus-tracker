@@ -15,14 +15,29 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include <ArduinoJson.h>
+#include <HTTPUpdate.h>
+#include <esp_ota_ops.h>
 
 #include "pins.h"
+
+#ifndef FW_BUILD
+#define FW_BUILD 0            // CI overrides via -D FW_BUILD=<git commit count>
+#endif
+#ifndef FW_SHA
+#define FW_SHA "dev"          // CI overrides via -D FW_SHA=<short sha>
+#endif
 
 static const uint16_t PANEL_W = 64;
 static const uint16_t PANEL_H = 32;
 static const uint32_t POLL_MS = 3000;
 static const uint32_t HTTP_TIMEOUT_MS = 5000;
 static const uint8_t MAX_FAILURES_BEFORE_NOTICE = 5;
+
+static const uint32_t OTA_CHECK_MS = 15UL * 60UL * 1000UL; // 15 min
+static const uint32_t OTA_FIRST_CHECK_MS = 30UL * 1000UL;  // ~30 s after boot
+static uint32_t nextOtaCheck = OTA_FIRST_CHECK_MS;
+static bool firmwareValidated = false;
 
 static const size_t HEADER_SIZE = 8;
 static const size_t PIXEL_BYTES = PANEL_W * PANEL_H * 2;
@@ -142,6 +157,80 @@ static void ensureWiFi() {
   for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) delay(500);
 }
 
+// Called once after the first good frame fetch post-boot. If we booted a
+// freshly-OTA'd image in the PENDING_VERIFY state, mark it valid so it becomes
+// permanent; otherwise this is a harmless no-op.
+static void markFirmwareValidIfPending() {
+  if (firmwareValidated) return;
+  firmwareValidated = true;
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) == ESP_OK &&
+      state == ESP_OTA_IMG_PENDING_VERIFY) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    Serial.println("OTA image marked valid");
+  }
+}
+
+// "http://host:8000/frame.bin" -> "http://host:8000"
+static bool baseUrlFromFrameUrl(const char *url, char *out, size_t outSize) {
+  const char *tail = strstr(url, "/frame.bin");
+  if (tail == nullptr) return false;
+  size_t len = (size_t)(tail - url);
+  if (len == 0 || len >= outSize) return false;
+  memcpy(out, url, len);
+  out[len] = '\0';
+  return true;
+}
+
+// Returns the server's advertised build, or -1 on any error/absence.
+static long fetchServerBuild(const char *baseUrl) {
+  char url[160];
+  snprintf(url, sizeof(url), "%s/firmware/latest.json", baseUrl);
+  HTTPClient http;
+  http.setConnectTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  if (!http.begin(url)) return -1;
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) { http.end(); return -1; }
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, http.getString());
+  http.end();
+  if (err) return -1;
+  return doc["build"] | -1;
+}
+
+static void checkForUpdate() {
+  char base[128];
+  if (!baseUrlFromFrameUrl(frameUrl, base, sizeof(base))) return;
+
+  long serverBuild = fetchServerBuild(base);
+  if (serverBuild < 0) return;                 // no server firmware / error
+  if (serverBuild <= FW_BUILD) return;         // strictly-greater rule
+
+  Serial.printf("OTA: server build %ld > mine %d; updating\n", serverBuild, FW_BUILD);
+  showMessage("UPDATING", "...");
+
+  char binUrl[160];
+  snprintf(binUrl, sizeof(binUrl), "%s/firmware.bin", base);
+
+  // The download is the worst case for S3 WiFi-vs-DMA EMI: quiet the panel.
+  // NOTE: stopDMAoutput() is one-way in this library version — the panel stays
+  // black until reboot — so every path below this line must end in a reboot.
+  display->stopDMAoutput();
+  WiFiClient client;
+  httpUpdate.rebootOnUpdate(true);             // reboots into new image on success
+  t_httpUpdate_return ret = httpUpdate.update(client, binUrl);
+
+  // Only reached if the update did NOT reboot (i.e. it failed). The panel is
+  // dead at this point, so restart to restore the display and resume normally.
+  Serial.printf("OTA did not reboot (ret=%d, err=%d: %s); restarting\n",
+                (int)ret, httpUpdate.getLastError(),
+                httpUpdate.getLastErrorString().c_str());
+  delay(2000);                                 // let the serial line flush
+  ESP.restart();
+}
+
 void setup() {
   Serial.begin(115200);
   initDisplay();
@@ -153,12 +242,18 @@ void loop() {
 
   if (fetchAndBlit()) {
     failures = 0;
+    markFirmwareValidIfPending();
   } else {
     if (failures < 255) failures++;
     Serial.printf("frame fetch failed (%u in a row) from %s\n", failures, frameUrl);
     if (failures == MAX_FAILURES_BEFORE_NOTICE) {
       showMessage("NO LINK", "CHECK SRV");
     }
+  }
+
+  if (millis() >= nextOtaCheck) {
+    nextOtaCheck = millis() + OTA_CHECK_MS;
+    if (WiFi.status() == WL_CONNECTED) checkForUpdate();
   }
 
   delay(POLL_MS);

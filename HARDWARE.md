@@ -1,0 +1,164 @@
+# Hardware — Bill of Materials & Decisions
+
+_Last updated: 2026-07-11. Records the hardware chosen for the physical build,
+why, and the firmware follow-ups it implies. Written so a future session (Claude
+Code or otherwise) has the full context without re-deriving it._
+
+## Design goals that drove these choices
+
+- **No soldering.** The builder is new to hardware; every connection must be
+  plug-in or screw-terminal.
+- **Kitchen-shelf display, readable from up to ~10 feet.**
+- **Reuse the existing architecture.** The device stays a "dumb frame client":
+  the Dockerized backend renders a 64×32 RGB565 image and serves `/frame.bin`;
+  the device fetches it over WiFi every few seconds and blits it. No backend or
+  frame-protocol changes are needed for the new hardware.
+
+## Final bill of materials (ordered July 2026, ~$76 total)
+
+| Component | Product (as ordered) | Key specs | Price | Source / ASIN |
+|---|---|---|---|---|
+| Driver board (controller) | **Waveshare ESP32-S3-RGB-Matrix** ("ESP32-S3 RGB Matrix Driver Board") | ESP32-S3-N32R16, 32MB flash / 16MB PSRAM, WiFi+BLE, HUB75 out, screw-terminal 5V in + USB-C, onboard RTC/IMU/mics | $34.55 | Amazon (Waveshare, SKU 34422) |
+| LED panel | **Waveshare 64×32 RGB LED Matrix, P4 (4mm pitch)** | 64×32 (2048 px), HUB75, 1/16 scan, ~256×128 mm, includes ribbon + power pigtail | $31.67 | Amazon B0B3W1PFY6 |
+| Power supply | **YiKaiEn 5V 5A (25W)**, screw-terminal + 5.5×2.5mm barrel | 5V DC, 5A, UL-type brick, US plug | $9.99 | Amazon B0FDRSWL8T |
+
+Total: **$76.21**.
+
+## Key decisions & rationale
+
+### Controller: Waveshare ESP32-S3-RGB-Matrix (chosen)
+
+- **No soldering:** panel connects via ribbon + screw-terminal power; board ships assembled.
+- **Firmware reuse:** the board runs the *same* `ESP32-HUB75-MatrixPanel-DMA`
+  library the current firmware already uses, so it should be close to drop-in
+  (mainly a pin remap — see TODOs). This was the deciding factor over the Adafruit
+  MatrixPortal S3, which would have required a full rewrite to Adafruit Protomatter.
+- **Availability:** in stock with (slower) shipping while the MatrixPortal S3 was
+  out of stock with manufacturing lead times almost everywhere as of July 2026.
+- **Spec headroom:** ESP32-S3 with 32MB flash / 16MB PSRAM — far more than a 4KB
+  frame client needs, but useful future-proofing.
+
+### Alternatives considered and rejected
+
+- **Adafruit MatrixPortal S3** — cleanest flush-mount and best docs, but (a) chronically
+  out of stock / long lead times in mid-2026, and (b) does **not** play well with the
+  `ESP32-HUB75-MatrixPanel-DMA` library over WiFi (documented I2S/DMA-vs-WiFi EMI on its
+  PCB). Its native path is Protomatter, which would mean rewriting the firmware. Still a
+  fine fallback if the Waveshare board disappoints.
+- **ESP32-Trinity (Brian Lough / Makerfabs)** — the *safest* "known-good, zero firmware
+  change" option (classic ESP32-WROOM, no S3 WiFi-EMI issue, years of Tidbyt-style builds).
+  Rejected only because it ships from China (slow) and the builder wanted fast US shipping.
+  Keep as the backup if the Waveshare board has WiFi trouble.
+
+### Panel size/aspect: 64×32, P4 (4mm) pitch (chosen)
+
+- **Resolution is fixed at 64×32** by the backend renderer — not a free choice.
+- **Aspect 2:1 (landscape)** suits a departure-board layout and keeps text tall; it's the
+  Tidbyt-style standard the content is built around. A square 64×64 was rejected: it would
+  shrink text at the same physical size and require reworking the backend render size/layouts.
+- **P4 pitch for 10-foot readability:** with the ~16px-tall glyphs this project uses, P4 gives
+  ~2.5" characters (≈256×128 mm panel) — effortless at 10 ft. P3 was borderline for small text
+  at that distance; P5 (~320×160 mm) reads even better but is a bigger shelf footprint than wanted.
+
+### Power: 5V 5A, fed to the board's screw terminal (chosen)
+
+- A single 64×32 P4 draws ~1.5–3A typical, ~4A worst case (full white, max brightness). **5A is
+  sufficient; gives headroom without needing a 10A brick.** Only chaining panels would need more.
+- **Topology:** PSU 5V → board screw terminal (the shared 5V bus) → board runs its own ESP32 **and**
+  feeds the panel. The panel needs *two* connections: the **HUB75 ribbon for data** and **thick
+  5V wires for LED power** (high current bypasses the signal path). Share ground across PSU, board,
+  and panel.
+- **USB-C is for flashing only** — its 5V rail is current-limited and will brown out a bright panel.
+  Run the panel from the wall supply via the screw terminal.
+
+## Firmware follow-ups (TODO when hardware arrives)
+
+The current firmware (`firmware/`) targets a classic ESP32 (`board = esp32dev`) using the DMA
+library's **classic-ESP32** default pins (R1=25, G1=26, B1=27, R2=14, G2=12, B2=13, A=23, B=19,
+C=5, D=17, LAT=4, OE=15, CLK=16). Moving to the Waveshare ESP32-S3 board needs the following.
+The backend, frame protocol, and the "fetch `/frame.bin` and blit" client logic are **unchanged** —
+only the board target and the panel init.
+
+### 1. PlatformIO board target
+
+Change the env from `esp32dev` to an ESP32-S3 target (e.g. `board = esp32-s3-devkitc-1`), keeping
+the same `mrfaptastic/ESP32 HUB75 LED MATRIX PANEL DMA Display` and WiFiManager deps. The board is
+an ESP32-S3-N32R16 (octal PSRAM); PSRAM isn't required for a 4KB frame, but if enabled, the library
+will use `SPIRAM_DMA_BUFFER` automatically.
+
+### 2. HUB75 pins — do NOT hardcode; use the library's ESP32-S3 defaults
+
+Key finding: Waveshare's own Arduino examples construct the panel with **no custom pin map**
+(`HUB75_I2S_CFG mxconfig(64, 32, 1);`) and comment *"Keep ESP32-S3 default HUB75 mapping to avoid
+Flash/PSRAM reserved pins."* So the board is wired to the DMA library's built-in **ESP32-S3**
+defaults. Delete any explicit `i2s_pins` from the config and let it default. (The old classic-ESP32
+pins above must NOT be reused — several, e.g. 23/25, don't even exist on the S3.)
+
+For reference, the library's ESP32-S3 default pins (from
+`src/platforms/esp32s3/esp32s3-default-pins.hpp`) are:
+
+| Signal | GPIO | Signal | GPIO | Signal | GPIO |
+|---|---|---|---|---|---|
+| R1 | 4 | R2 | 7 | A | 18 |
+| G1 | 5 | G2 | 15 | B | 8 |
+| B1 | 6 | B2 | 16 | C | 3 |
+| LAT | 40 | OE | 2 | D | 42 |
+| CLK | 41 | | | E | -1 (unused on 64×32) |
+
+Sanity check on first boot: the library logs each GPIO it uses at `begin()` — confirm they match
+this table, and cross-check the current example `.ino` in the Waveshare GitHub repo in case a
+library version bumps the defaults.
+
+### 3. REQUIRED for this P4 panel: set the shift-register driver
+
+Waveshare's docs: *"When driving a P4 series panel, be sure to add
+`mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;` … otherwise display anomalies may occur."* Set it.
+(It is the library's default driver, but set it explicitly per Waveshare. Do **not** set `FM6126A`
+/ `FM6124` unless a future panel actually needs it.)
+
+Resulting init looks like:
+
+```cpp
+HUB75_I2S_CFG mxconfig(64, 32, 1);        // width, height, chain — no custom pins
+mxconfig.driver = HUB75_I2S_CFG::SHIFTREG; // required for the Waveshare P4 panel
+dma_display = new MatrixPanel_I2S_DMA(mxconfig);
+dma_display->begin();
+dma_display->setBrightness8(128);          // brightness is server-controlled in this project
+```
+
+### 4. Open risk: WiFi stability under DMA (test early)
+
+The S3's WiFi radio can be disturbed by HUB75 DMA EMI (documented for S3 boards generally). If frame
+fetches become flaky once the panel is lit, mitigations in order:
+
+- **Correction (verified against the pinned library source, v3.0.15):** the library exposes only a
+  **one-way** `stopDMAoutput()` — its own doc comment says *"Screen will forever be black until next
+  ESP reboot."* There is no `resumeDMAoutput()` or other resume/restart counterpart anywhere in this
+  library version (the underlying bus class has an internal `dma_transfer_start()`, but it is not
+  exposed publicly). That rules out wrapping each routine `/frame.bin` fetch in
+  stop → fetch → resume — there is no way to resume without rebooting, and rebooting every 3 seconds
+  is not viable. The mitigation is therefore usable **only** around the firmware's OTA download, which
+  already ends in a reboot either way (into the new image on success, or via an explicit `ESP.restart()`
+  if the update fails) — see `firmware/src/main.cpp`'s `checkForUpdate()`. It does **not** apply to the
+  steady-state per-frame fetch loop.
+- Lower brightness; confirm the onboard antenna (we bought the standard, not the u.FL variant).
+- Last resort: fall back to the **ESP32-Trinity** (classic ESP32, no S3 EMI issue, runs the current
+  firmware unchanged) or rewrite onto Adafruit **Protomatter**.
+
+This is the main open unknown in the hardware plan; validate it before finishing the enclosure.
+
+## Assembly & first-boot notes
+
+1. Plug the board onto the panel's HUB75 **input** header (match the arrows) or use the 16-pin ribbon.
+2. Land the panel's power pigtail in the board's 5V screw terminal — **red = +5V, black = GND**.
+3. Connect the 5V supply to the board's 5V input. The ordered supply ends in a **barrel plug**; the
+   board's input is a **screw terminal**, so either: (a) snip the barrel plug, strip the two wires,
+   and screw them in directly (simplest — **confirm polarity first**, center pin = +5V), or (b) use
+   the included green barrel→screw adapter with short jumper wires. First check the board for a round
+   barrel jack — if present, the plug goes straight in with no wiring.
+4. USB-C to a computer **once** to flash; afterward it runs on the wall supply alone.
+5. First boot opens a WiFi-setup hotspot (WiFiManager); join it, enter home WiFi + the backend
+   `frame.bin` URL. It then mirrors the backend's preview.
+
+**Safety:** always wire with the supply unplugged from the wall (the 120V side is sealed in the
+brick; the cord is only 5V DC). Get polarity right — reversing +/- can kill the board.
