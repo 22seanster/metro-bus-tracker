@@ -35,10 +35,17 @@ uint8_t failures = 0;
 bool paramsDirty = false;
 
 static void initDisplay() {
+#ifdef BOARD_S3
+  // Waveshare ESP32-S3-RGB-Matrix: keep the DMA library's ESP32-S3 default
+  // HUB75 pins (its examples do the same), and set SHIFTREG for the P4 panel.
+  HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1);
+  cfg.driver = HUB75_I2S_CFG::SHIFTREG;
+#else
   HUB75_I2S_CFG::i2s_pins pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN,
                                   A_PIN,  B_PIN,  C_PIN,  D_PIN,  E_PIN,
                                   LAT_PIN, OE_PIN, CLK_PIN};
   HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1, pins);
+#endif
   display = new MatrixPanel_I2S_DMA(cfg);
   display->begin();
   display->setBrightness8(128);
