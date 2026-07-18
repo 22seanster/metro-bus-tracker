@@ -1,8 +1,14 @@
 # Hardware — Bill of Materials & Decisions
 
-_Last updated: 2026-07-11. Records the hardware chosen for the physical build,
+_Last updated: 2026-07-18. Records the hardware chosen for the physical build,
 why, and the firmware follow-ups it implies. Written so a future session (Claude
 Code or otherwise) has the full context without re-deriving it._
+
+_**Assembly status:** built and powered on 2026-07-18. The panel lights and the
+board boots. Sections marked **VERIFIED ON HARDWARE** were confirmed against the
+physical build; everything else is still as-planned. The pre-build guesses about
+the driver board's power connectors were **wrong** — see "Power" and "Assembly"
+below for what the board actually has._
 
 ## Design goals that drove these choices
 
@@ -18,11 +24,17 @@ Code or otherwise) has the full context without re-deriving it._
 
 | Component | Product (as ordered) | Key specs | Price | Source / ASIN |
 |---|---|---|---|---|
-| Driver board (controller) | **Waveshare ESP32-S3-RGB-Matrix** ("ESP32-S3 RGB Matrix Driver Board") | ESP32-S3-N32R16, 32MB flash / 16MB PSRAM, WiFi+BLE, HUB75 out, screw-terminal 5V in + USB-C, onboard RTC/IMU/mics | $34.55 | Amazon (Waveshare, SKU 34422) |
-| LED panel | **Waveshare 64×32 RGB LED Matrix, P4 (4mm pitch)** | 64×32 (2048 px), HUB75, 1/16 scan, ~256×128 mm, includes ribbon + power pigtail | $31.67 | Amazon B0B3W1PFY6 |
-| Power supply | **YiKaiEn 5V 5A (25W)**, screw-terminal + 5.5×2.5mm barrel | 5V DC, 5A, UL-type brick, US plug | $9.99 | Amazon B0FDRSWL8T |
+| Driver board (controller) | **Waveshare ESP32-S3-RGB-Matrix** ("ESP32-S3 RGB Matrix Driver Board") | ESP32-S3-N32R16, 32MB flash / 16MB PSRAM, WiFi+BLE, female HUB75 socket, **two USB-C ports (`POWER` + `USB`)**, **5V/GND copper post bus**, onboard RTC/IMU/mics | $34.55 | Amazon (Waveshare, SKU 34422) |
+| LED panel | **Waveshare 64×32 RGB LED Matrix, P4 (4mm pitch)** | 64×32 (2048 px), HUB75, 1/16 scan, ~256×128 mm, includes chaining ribbon + VH4 power pigtail | $31.67 | Amazon B0B3W1PFY6 |
+| Power supply | ~~**YiKaiEn 5V 5A (25W)**, screw-terminal + 5.5×2.5mm barrel~~ **Not needed** — see Power below | 5V DC, 5A, UL-type brick, US plug | $9.99 | Amazon B0FDRSWL8T |
 
-Total: **$76.21**.
+Total as ordered: **$76.21**. The 5V/5A brick turned out to be unnecessary —
+the build runs on a USB-C charger. Keep it as a fallback if brightness ever
+outgrows USB-C.
+
+**Correction (2026-07-18):** the driver board row above originally read
+"screw-terminal 5V in + USB-C". That was wrong. The board has **no screw
+terminal and no barrel jack**.
 
 ## Key decisions & rationale
 
@@ -60,16 +72,40 @@ Total: **$76.21**.
   ~2.5" characters (≈256×128 mm panel) — effortless at 10 ft. P3 was borderline for small text
   at that distance; P5 (~320×160 mm) reads even better but is a bigger shelf footprint than wanted.
 
-### Power: 5V 5A, fed to the board's screw terminal (chosen)
+### Power: USB-C into the board's `POWER` port — **VERIFIED ON HARDWARE**
 
-- A single 64×32 P4 draws ~1.5–3A typical, ~4A worst case (full white, max brightness). **5A is
-  sufficient; gives headroom without needing a 10A brick.** Only chaining panels would need more.
-- **Topology:** PSU 5V → board screw terminal (the shared 5V bus) → board runs its own ESP32 **and**
-  feeds the panel. The panel needs *two* connections: the **HUB75 ribbon for data** and **thick
-  5V wires for LED power** (high current bypasses the signal path). Share ground across PSU, board,
-  and panel.
-- **USB-C is for flashing only** — its 5V rail is current-limited and will brown out a bright panel.
-  Run the panel from the wall supply via the screw terminal.
+The board has **no screw terminal and no barrel jack**. Its power interfaces are:
+
+- **Two USB-C ports**, silkscreened **`POWER`** and **`USB`**.
+- **Two copper posts** silkscreened **`5V`** and **`GND`**, each with a screw. These are the
+  shared 5V bus, *not* mounting standoffs — the HUB75 connector carries the mechanical load.
+  Fork/spade terminals land under the post screws (this is what the panel pigtail's forks are for).
+
+**Working topology (built and confirmed 2026-07-18):**
+
+```
+USB-C charger → board `POWER` port → board's 5V bus
+                                      ├→ runs the ESP32-S3
+                                      └→ `5V`/`GND` posts → VH4 pigtail → panel `VCC`/`GND`
+
+Board's female HUB75 socket plugs DIRECTLY onto the panel's male `IN` header (data).
+```
+
+- **USB-C alone powers the whole assembly, panel included.** Waveshare's own user guide lists a
+  **27W USB-C PSU as a required component**, which is the intended power path. Confirmed working.
+- Note that 27W USB-C PD is typically only **5V/3A (15W)** at 5V — the 27W headline comes from
+  higher-voltage PD profiles. 3A is still ample for this project's sparse, mostly-black screens.
+  Use a genuine 27W-class charger, not a 1A phone brick; a marginal supply causes flaky resets,
+  not a clean failure.
+- **The earlier claim that "USB-C is for flashing only" was wrong** and has been removed. It was
+  based on the assumption that the board had a screw terminal for wall power. It does not.
+- The wires from the posts to the panel are required **regardless** of the power source — the
+  posts are how power leaves the board to reach the panel's LEDs.
+- **Open item:** USB-C power was validated against Waveshare's demo firmware, which may be dimmer
+  or sparser than this project's screens. Re-check for brownouts/resets on the first sustained run
+  of real content at real brightness. The 5V/5A brick is the fallback if it proves marginal.
+- Panel draw for reference: ~1.5–3A typical, ~4A worst case (full white, max brightness). This
+  project never approaches full white.
 
 ## Firmware follow-ups (TODO when hardware arrives)
 
@@ -147,18 +183,37 @@ fetches become flaky once the panel is lit, mitigations in order:
 
 This is the main open unknown in the hardware plan; validate it before finishing the enclosure.
 
-## Assembly & first-boot notes
+## Assembly & first-boot notes — **VERIFIED ON HARDWARE**
 
-1. Plug the board onto the panel's HUB75 **input** header (match the arrows) or use the 16-pin ribbon.
-2. Land the panel's power pigtail in the board's 5V screw terminal — **red = +5V, black = GND**.
-3. Connect the 5V supply to the board's 5V input. The ordered supply ends in a **barrel plug**; the
-   board's input is a **screw terminal**, so either: (a) snip the barrel plug, strip the two wires,
-   and screw them in directly (simplest — **confirm polarity first**, center pin = +5V), or (b) use
-   the included green barrel→screw adapter with short jumper wires. First check the board for a round
-   barrel jack — if present, the plug goes straight in with no wiring.
-4. USB-C to a computer **once** to flash; afterward it runs on the wall supply alone.
-5. First boot opens a WiFi-setup hotspot (WiFiManager); join it, enter home WiFi + the backend
+This is the sequence that actually worked. Do steps 1–3 with **nothing plugged in**.
+
+1. **Plug the driver board directly onto the panel.** The board's HUB75 connector is a **female
+   socket**; the panel's `IN`/`OUT` headers are **male**. It mates straight on — no ribbon in
+   between. Use **`IN`** (the header the panel's silkscreened arrow points *away* from). Match the
+   shroud key; it should seat with light, even pressure.
+   - The bundled 16-pin gray ribbon is **female on both ends** — it is the *panel-to-panel chaining*
+     cable (`OUT` → next panel's `IN`), not a board-to-panel cable. With one panel it is a spare.
+2. **Land the panel's VH4 power pigtail on the board's posts.** Unscrew the `5V` and `GND` post
+   screws, slip the fork terminals under them, retighten firmly, then tug-test each. **Red → `5V`,
+   black → `GND`** (read the silkscreen, don't go by position).
+3. **Plug the pigtail's white VH4 connector into the panel's `VCC`/`GND` header.** The pigtail has
+   **two** VH4 connectors wired in parallel (for a second panel); either works, and the unused one
+   is live 5V — tuck or tape it. Before powering, eyeball that **red lands on `VCC`** per the panel
+   silkscreen. Keying guarantees orientation, not that the vendor used the same convention on both
+   ends, and reversed polarity destroys the panel.
+4. **Power on:** USB-C charger (27W class) → the board's **`POWER`** port. Expect Waveshare's stock
+   demo firmware to light the panel. It is likely authored for a **64×64** panel, so a doubled,
+   squashed, or half-drawn image on this 64×32 is **normal** and still confirms good wiring. You are
+   checking "pixels light," not "picture is correct."
+5. **Flash:** USB-C to a computer via the **`USB`** port (not `POWER`). *Unverified* — inferred from
+   the silkscreen; if the flash tool can't see the board, swap ports first.
+6. First boot opens a WiFi-setup hotspot (WiFiManager); join it, enter home WiFi + the backend
    `frame.bin` URL. It then mirrors the backend's preview.
 
-**Safety:** always wire with the supply unplugged from the wall (the 120V side is sealed in the
-brick; the cord is only 5V DC). Get polarity right — reversing +/- can kill the board.
+**Clearance check:** the board rides on the panel's back, cantilevered off the HUB75 connector. The
+underside carries the **screw heads of the `5V`/`GND` posts** — live metal. Resting on the panel's
+black plastic frame ribs is fine; sitting over the panel's exposed-PCB cutout windows is a short.
+Tape over the screw heads if unsure. Dress the pigtail slack away from those windows.
+
+**Safety:** get polarity right at both ends — reversing +/− can kill the board or the panel. Make
+all connections with nothing plugged in.

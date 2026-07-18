@@ -22,3 +22,6 @@ Thumbs.db
 # Firmware artifacts staged into the backend image by CI (never committed)
 backend/app/firmware/firmware.bin
 backend/app/firmware/latest.json
+
+# Local hardware build photos (not part of the repo)
+hardware pics/
