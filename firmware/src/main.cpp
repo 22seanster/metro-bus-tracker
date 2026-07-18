@@ -5,9 +5,9 @@
 // panel. All layout/data logic lives in the backend; reflashing is never
 // needed for new screens.
 //
-// First boot (or hold BOOT within 3s of power-up): opens a WiFi access point
-// "BusTracker-Setup". Join it from a phone, pick your WiFi, and set the
-// backend frame URL, e.g. http://192.168.1.50:8000/frame.bin
+// First boot: opens a WiFi access point "BusTracker-Setup". Join it from a
+// phone, pick your WiFi, and set the backend frame URL, e.g.
+// http://192.168.1.50:8000/frame.bin
 
 #include <Arduino.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
@@ -177,6 +177,16 @@ static void markFirmwareValidIfPending() {
   if (esp_ota_get_state_partition(running, &state) == ESP_OK &&
       state == ESP_OTA_IMG_PENDING_VERIFY) {
     esp_ota_mark_app_valid_cancel_rollback();
+    // This boot is the first good frame fetch after a fresh OTA flash, i.e.
+    // the update just succeeded. Clear the retry-tracking state so it doesn't
+    // linger forever: a subsequent *failing* release must start its count at
+    // zero, not inherit whatever was left behind by this device's OTA
+    // history. A plain power-cycle boot never reaches this branch at all
+    // (the running partition is only ESP_OTA_IMG_PENDING_VERIFY immediately
+    // after a fresh OTA flash, before it has been confirmed), so a genuinely
+    // failing release's count still survives ordinary reboots untouched.
+    prefs.putInt("otaFailCount", 0);
+    prefs.putString("otaFailSha", "");
     Serial.println("OTA image marked valid");
   }
 }
@@ -192,21 +202,32 @@ static bool baseUrlFromFrameUrl(const char *url, char *out, size_t outSize) {
   return true;
 }
 
-// Returns the server's advertised build, or -1 on any error/absence.
-static long fetchServerBuild(const char *baseUrl) {
+// Fetches the server's advertised release (build + sha) into *build/sha.
+// Returns false on any error (network failure, non-200, malformed JSON, or a
+// missing "build"/"sha" key) and leaves *build/sha untouched; the caller
+// treats false as "no update available" and must not touch DMA on this path.
+static bool fetchServerRelease(const char *baseUrl, long *build, char *sha, size_t shaSize) {
   char url[160];
   snprintf(url, sizeof(url), "%s/firmware/latest.json", baseUrl);
   HTTPClient http;
   http.setConnectTimeout(HTTP_TIMEOUT_MS);
   http.setTimeout(HTTP_TIMEOUT_MS);
-  if (!http.begin(url)) return -1;
+  if (!http.begin(url)) return false;
   int code = http.GET();
-  if (code != HTTP_CODE_OK) { http.end(); return -1; }
+  if (code != HTTP_CODE_OK) { http.end(); return false; }
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, http.getString());
   http.end();
-  if (err) return -1;
-  return doc["build"] | -1;
+  if (err) return false;
+
+  if (doc["build"].isNull() || doc["sha"].isNull() || !doc["sha"].is<const char *>()) return false;
+  const char *shaVal = doc["sha"].as<const char *>();
+  if (shaVal == nullptr) return false;
+
+  *build = doc["build"].as<long>();
+  strncpy(sha, shaVal, shaSize - 1);
+  sha[shaSize - 1] = '\0';
+  return true;
 }
 
 static void checkForUpdate() {
@@ -216,30 +237,37 @@ static void checkForUpdate() {
     return;
   }
 
-  long serverBuild = fetchServerBuild(base);
-  if (serverBuild < 0) return;                 // no server firmware / error
+  long serverBuild = -1;
+  char serverSha[32] = {0};
+  if (!fetchServerRelease(base, &serverBuild, serverSha, sizeof(serverSha))) return; // no server firmware / error
   if (serverBuild <= FW_BUILD) return;         // strictly-greater rule
 
-  // Track repeated failures per server build so a poisoned build can't wear
-  // out flash with an endless download/flash/reboot loop, while a genuinely
-  // new build is always retried from a clean slate.
-  int otaFailBuild = prefs.getInt("otaFailBuild", -1);
+  // Track repeated failures per server *release*, keyed on sha rather than
+  // build: build is git rev-list --count HEAD, which is not guaranteed
+  // monotonic or unique across a rebase/force-push/branch switch, so a
+  // repeated build number must not inherit a stale abandon record from a
+  // different, earlier release that happened to number the same. This keeps
+  // a poisoned release from wearing out flash with an endless
+  // download/flash/reboot loop, while a genuinely new release (different
+  // sha, even with the same build number) is always retried from a clean
+  // slate.
+  String otaFailSha = prefs.getString("otaFailSha", "");
   int otaFailCount = prefs.getInt("otaFailCount", 0);
-  if ((long)otaFailBuild != serverBuild) {
-    otaFailBuild = (int)serverBuild;
+  if (!otaFailSha.equals(serverSha)) {
+    otaFailSha = serverSha;
     otaFailCount = 0;
   }
   if (otaFailCount >= MAX_OTA_ATTEMPTS) {
-    Serial.printf("OTA: build %ld failed %u times; giving up until a new build appears\n",
-                  serverBuild, otaFailCount);
+    Serial.printf("OTA: build %ld sha %s failed %d times; giving up until a new release appears\n",
+                  serverBuild, serverSha, otaFailCount);
     return;
   }
   otaFailCount++;
-  prefs.putInt("otaFailBuild", otaFailBuild);
+  prefs.putString("otaFailSha", otaFailSha);
   prefs.putInt("otaFailCount", otaFailCount);
 
-  Serial.printf("OTA: server build %ld > mine %d; updating (attempt %u/%u)\n",
-                serverBuild, FW_BUILD, otaFailCount, MAX_OTA_ATTEMPTS);
+  Serial.printf("OTA: server build %ld sha %s > mine %d; updating (attempt %d/%d)\n",
+                serverBuild, serverSha, FW_BUILD, otaFailCount, MAX_OTA_ATTEMPTS);
   showMessage("UPDATING", "...");
 
   char binUrl[160];
@@ -289,7 +317,7 @@ void loop() {
     markFirmwareValidIfPending();
   } else {
     if (failures < 255) failures++;
-    Serial.printf("frame fetch failed (%u in a row) from %s\n", failures, frameUrl);
+    Serial.printf("frame fetch failed (%d in a row) from %s\n", failures, frameUrl);
     if (failures == MAX_FAILURES_BEFORE_NOTICE) {
       showMessage("NO LINK", "CHECK SRV");
     }
@@ -300,10 +328,19 @@ void loop() {
   // nextOtaCheck fails: when rescheduled near UINT32_MAX, nextOtaCheck wraps
   // small while millis() is still large, causing the check to fire repeatedly
   // until millis() also wraps ~15 min later.
-  if ((int32_t)(millis() - nextOtaCheck) >= 0) {
+  int32_t otaOverdueBy = (int32_t)(millis() - nextOtaCheck);
+  if (otaOverdueBy >= 0) {
     if (WiFi.status() == WL_CONNECTED) {
       nextOtaCheck = millis() + OTA_CHECK_MS;
       checkForUpdate();
+    } else if (otaOverdueBy > (int32_t)OTA_CHECK_MS) {
+      // WiFi has been down long enough that nextOtaCheck is more than a full
+      // check interval in the past. Re-anchor to "now" so millis() -
+      // nextOtaCheck can't keep growing toward INT32_MAX (~24.8 days), which
+      // would otherwise make the rollover-safe comparison above go dormant
+      // for another ~24.8 days once it wraps negative. A shorter outage still
+      // retries promptly via the fallthrough below.
+      nextOtaCheck = millis();
     }
     // else: leave nextOtaCheck as-is so a check skipped due to WiFi being
     // momentarily down retries promptly instead of waiting a full 15 min.

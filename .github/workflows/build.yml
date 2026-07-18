@@ -40,7 +40,10 @@ jobs:
           cd firmware
           PLATFORMIO_BUILD_FLAGS="-D FW_BUILD=${BUILD} -D FW_SHA='\"${SHA}\"'" pio run -e esp32-s3
           strings .pio/build/esp32-s3/firmware.bin | grep -q "FWID build=${BUILD} " \
-            || { echo "FATAL: compiled FW_BUILD does not match ${BUILD}"; exit 1; }
+            || { echo "FATAL: compiled FW_BUILD does not match ${BUILD}. This also fires if" \
+                      "setup()'s Serial.println(FW_VERSION_MARKER) call was removed -- that" \
+                      "runtime reference is what keeps --gc-sections from stripping the marker" \
+                      "out of the binary, so don't 'fix' this by loosening the grep."; exit 1; }
           mkdir -p ../backend/app/firmware
           cp .pio/build/esp32-s3/firmware.bin ../backend/app/firmware/firmware.bin
           printf '{"build": %s, "sha": "%s"}\n' "${BUILD}" "${SHA}" \

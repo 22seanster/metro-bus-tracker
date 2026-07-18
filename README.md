@@ -74,7 +74,7 @@ The default PlatformIO env (`esp32-s3`) targets the S3 board above. A plain
 build number the same way CI does so you can actually test a local change:
 
 ```bash
-pip install platformio
+pip install platformio==6.1.19   # matches the version CI builds and flashes with
 cd firmware
 PLATFORMIO_BUILD_FLAGS="-D FW_BUILD=$(git rev-list --count HEAD) -D FW_SHA='\"'$(git rev-parse --short HEAD)'\"'" pio run -e esp32-s3 -t upload
 ```
@@ -105,9 +105,16 @@ Once a device has been flashed once over USB, it never needs a cable again:
    than its own, downloads and flashes `/firmware.bin`, then reboots into it.
 
 A failed update (interrupted transfer, out-of-space, etc.) retries at most
-**3 times per build**; after that the device gives up on that specific build
-number (logged over serial) so a persistently broken build can't loop the
-device forever. A newer build is always retried fresh.
+**3 times per release**, keyed on the release's `sha` (not its `build`
+number, which is a `git rev-list --count` value and can repeat across a
+rebase or force-push). After 3 failures the device abandons that specific
+sha (logged over serial) so a persistently broken release can't loop the
+device forever; publishing a fix — even under the same build number, as long
+as the sha differs — is retried fresh. If a device ever does lock itself out
+(e.g. a fix was published that happens to reuse both the same build number
+*and* sha as the abandoned release, which shouldn't normally happen), the
+only recovery path is a USB reflash — see [Flash the
+firmware](#flash-the-firmware) above.
 
 To check what the **backend is serving**, hit `/status` and look at the
 `firmware` block (`build`, `sha`, whether a binary is present) — this is the
