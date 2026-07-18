@@ -251,7 +251,12 @@ void loop() {
     }
   }
 
-  if (millis() >= nextOtaCheck) {
+  // Rollover-safe timer: comparing (int32_t)(millis() - nextOtaCheck) >= 0
+  // is safe across the ~49.7-day millis() wrap. The naive form millis() >=
+  // nextOtaCheck fails: when rescheduled near UINT32_MAX, nextOtaCheck wraps
+  // small while millis() is still large, causing the check to fire repeatedly
+  // until millis() also wraps ~15 min later.
+  if ((int32_t)(millis() - nextOtaCheck) >= 0) {
     nextOtaCheck = millis() + OTA_CHECK_MS;
     if (WiFi.status() == WL_CONNECTED) checkForUpdate();
   }
