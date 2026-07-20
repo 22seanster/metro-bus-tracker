@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# Serialize per-ref and drop superseded runs. Without this, two main pushes can
+# publish the ghcr `latest` tag out of order: on 2026-07-20 an outage stalled the
+# build for 443a447 (build 30) for 1h20m, so it finished 26s AFTER the build for
+# 45c271b (build 31) and overwrote `latest` with the OLDER image. Devices then saw
+# no OTA because serverBuild was not > their build. Cancelling the superseded run
+# is what makes "latest == tip of main" actually hold.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write

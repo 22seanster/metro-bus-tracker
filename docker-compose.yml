@@ -13,5 +13,15 @@ services:
       APP_TZ: America/Chicago
       # Defaults target stop 3216 (Lorraine St @ Cochran, inbound to Downtown TC),
       # routes 51/52. Override STOP_ID / ROUTE_IDS / DIRECTION_ID etc. here if needed.
-      # Spotify (phase 2) is intentionally not wired here: add SPOTIFY_CLIENT_ID,
-      # SPOTIFY_CLIENT_SECRET, and SPOTIFY_REFRESH_TOKENS to the stack env to enable it.
+      # Spotify now-playing: set these in the stack's environment variables section
+      # (never commit the secret or the tokens). The screen registers only when the
+      # client id, secret, and at least one refresh token are all present; leave
+      # them unset and the stack behaves exactly as before.
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      # "sean:<refresh token>,wife:<refresh token>" - order = priority when both play.
+      SPOTIFY_REFRESH_TOKENS: ${SPOTIFY_REFRESH_TOKENS:-}
+      # Substring match on the PLAYING device's name. Leave empty for now: HomePod
+      # and Bluetooth playback both report as the phone, so device names are a poor
+      # "am I home?" signal. Presence gating is being solved separately.
+      SPOTIFY_DEVICE_ALLOWLIST: ${SPOTIFY_DEVICE_ALLOWLIST:-}
