@@ -260,15 +260,27 @@ date.
   defaults `ARDUINO_USB_CDC_ON_BOOT=0` (Serial → UART0), which would make every
   Serial.print invisible. `platformio.ini` now sets
   `-D ARDUINO_USB_CDC_ON_BOOT=1`, routing Serial to the USB-C port.
-- **Flash is programmed DIO / 32 MB / 80 MHz, not QIO / 8 MB.** The docs never
-  state a flash mode, but the factory-flashed XiaoZhi image's ESP header decodes
-  to DIO, 32 MB, 80 MHz — and *nothing* the vendor ships uses QIO (the other
-  bundled bin is DOUT, which is also what an OPI-flash build stamps). The
-  devkitc-1 board default (QIO/8MB) was therefore unproven on this stacked
-  32 MB flash; `platformio.ini` now pins `flash_mode = dio`,
-  `flash_size = 32MB`, 80 MHz — exactly reproducing the header that is proven to
-  boot on this silicon. The partition table still spans only 8 MB (3 MB per OTA
-  slot is ample at ~1 MB app size); the upper 24 MB is simply unused.
+- **The 32 MB flash is OCTAL (OPI) — a quad-SPI build boot-loops.**
+  **VERIFIED ON HARDWARE 2026-07-19**, the hard way: a `dio`-mode build flashed
+  fine but crash-looped at app startup with `spi_flash: Detected size(512k)
+  smaller than the size in the binary image header(32768k)` while the boot ROM
+  printed `Octal Flash Mode Enabled` on every reset. The chip's eFuse marks the
+  stacked flash as octal, so the app's flash driver must be built for OPI:
+  `board_build.arduino.memory_type = opi_opi` (octal flash libs; the second
+  `opi` refers to the also-octal 16 MB PSRAM, which stays disabled), with
+  `flash_mode = dout` (the standard esptool write mode for OPI parts — DOUT is
+  also what the vendor's own test bin stamps, which in hindsight was the tell;
+  the XiaoZhi bin's DIO header was a red herring). `flash_size = 32MB`, 80 MHz.
+  This is the config that boots. Recovery from the boot-loop was a plain
+  reflash — the ROM loader is untouched by any of this. The partition table
+  still spans only 8 MB (3 MB per OTA slot is ample at ~1 MB app size); the
+  upper 24 MB is simply unused.
+- **Serial-over-USB timing quirk:** every reset tears down the USB CDC
+  connection, and the host takes ~1–2 s to re-attach — but the boot banner
+  prints in the first ~200 ms, so boot-time output is effectively never visible
+  on a monitor that was attached across the reset. Steady-state output (frame
+  fetch failures, OTA logs) shows fine. Judge first-boot health by the panel
+  ("WIFI SETUP" = display + firmware alive), not by catching the banner.
 - **Onboard peripherals share no HUB75 pins.** RTC (PCF85063) / IMU (QMI8658) /
   SHTC3 sit on I2C 47/48; audio (ES8311/ES7210) on 43/12/38/21/39/11; TF card on
   17/44/1/14 (MMC-only per the wiki). None collide with the 14 HUB75 GPIOs or
