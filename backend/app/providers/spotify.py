@@ -92,6 +92,11 @@ class SpotifyProvider(Provider):
         r.raise_for_status()
         payload = r.json()
         token = payload["access_token"]
+        # Spotify may rotate the refresh token on use; adopt the new one for
+        # this process or the account silently dies when the old token expires.
+        # (The env var still holds the original — surfaced via /status.error.)
+        if payload.get("refresh_token"):
+            self.refresh_tokens[account] = payload["refresh_token"]
         self._access[account] = (token, time.time() + payload.get("expires_in", 3600))
         return token
 
@@ -125,5 +130,8 @@ class SpotifyProvider(Provider):
                     states[account] = None
             np = select_playing(list(self.refresh_tokens), states, self.device_allowlist)
             if np:
-                await self._attach_art(client, np)
+                try:
+                    await self._attach_art(client, np)
+                except Exception:  # a flaky art CDN must not discard the track update
+                    np.art = None
             return np

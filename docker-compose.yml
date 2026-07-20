@@ -13,3 +13,5 @@ services:
       APP_TZ: America/Chicago
       # Defaults target stop 3216 (Lorraine St @ Cochran, inbound to Downtown TC),
       # routes 51/52. Override STOP_ID / ROUTE_IDS / DIRECTION_ID etc. here if needed.
+      # Spotify (phase 2) is intentionally not wired here: add SPOTIFY_CLIENT_ID,
+      # SPOTIFY_CLIENT_SECRET, and SPOTIFY_REFRESH_TOKENS to the stack env to enable it.

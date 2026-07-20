@@ -2,8 +2,10 @@
 that matches Sean's stop: #3216 Lorraine St @ Cochran St, inbound to Downtown TC,
 routes 051/052."""
 
+from datetime import time
 from functools import lru_cache
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -29,14 +31,15 @@ class Settings(BaseSettings):
 
     app_tz: str = "America/Chicago"
 
-    # Screen rotation dwell times (seconds)
-    bus_dwell_seconds: int = 12
-    weather_dwell_seconds: int = 8
-    clock_dwell_seconds: int = 8
+    # Screen rotation dwell times (seconds). ge=1: an all-zero cycle would be a
+    # ZeroDivisionError on every frame render, so reject it at startup instead.
+    bus_dwell_seconds: int = Field(default=12, ge=1)
+    weather_dwell_seconds: int = Field(default=8, ge=1)
+    clock_dwell_seconds: int = Field(default=8, ge=1)
 
     # Panel brightness (0-255) and night dimming window (local HH:MM)
-    brightness: int = 180
-    night_brightness: int = 40
+    brightness: int = Field(default=180, ge=0, le=255)
+    night_brightness: int = Field(default=40, ge=0, le=255)
     night_start: str = "22:00"
     night_end: str = "06:30"
 
@@ -47,9 +50,18 @@ class Settings(BaseSettings):
     spotify_refresh_tokens: str = ""  # "sean:<token>,wife:<token>" - order = priority
     spotify_device_allowlist: str = ""  # "Kitchen Speaker,Living Room TV"; empty = any device
     spotify_poll_seconds: float = 30
-    spotify_dwell_seconds: int = 10
+    spotify_dwell_seconds: int = Field(default=10, ge=1)
 
     log_level: str = "INFO"
+
+    @field_validator("night_start", "night_end")
+    @classmethod
+    def _validate_hhmm(cls, v: str) -> str:
+        # The night window is parsed on every frame render; a malformed value
+        # must fail here at startup, not turn every /frame.bin into a 500.
+        h, m = v.split(":")
+        time(int(h), int(m))
+        return v
 
     @property
     def route_id_list(self) -> list[str]:

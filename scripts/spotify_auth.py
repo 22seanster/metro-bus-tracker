@@ -26,6 +26,7 @@ REDIRECT_URI = "http://127.0.0.1:8765/callback"
 SCOPE = "user-read-playback-state"
 
 auth_code: str | None = None
+expected_state: str | None = None
 done = threading.Event()
 
 
@@ -33,7 +34,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         global auth_code
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        if "code" in query:
+        # Verify the OAuth state we generated, so only the flow we initiated
+        # can hand us a code.
+        if "code" in query and query.get("state", [""])[0] == expected_state:
             auth_code = query["code"][0]
             body = b"<h2>Authorized! You can close this tab.</h2>"
         else:
@@ -52,7 +55,9 @@ def main() -> None:
     client_id = input("Client ID: ").strip()
     client_secret = input("Client Secret: ").strip()
 
+    global expected_state
     state = secrets.token_urlsafe(16)
+    expected_state = state
     params = urllib.parse.urlencode({
         "client_id": client_id,
         "response_type": "code",

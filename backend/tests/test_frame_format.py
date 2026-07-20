@@ -50,6 +50,11 @@ def test_pixel_addressing_row_major():
     assert data[8:10] == b"\x00\x00"
 
 
+def test_brightness_clamped_not_wrapped():
+    assert pack_frame(make_image(), brightness=300)[4] == 255
+    assert pack_frame(make_image(), brightness=-5)[4] == 0
+
+
 def test_brightness_day():
     now = datetime(2026, 7, 7, 12, 0)
     assert compute_brightness(now, day=180, night=40, night_start="22:00", night_end="06:30") == 180

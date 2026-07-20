@@ -27,7 +27,9 @@ VERSION = 1
 def pack_frame(img: Image.Image, brightness: int, flags: int = 0) -> bytes:
     if img.size != (WIDTH, HEIGHT):
         raise ValueError(f"expected {WIDTH}x{HEIGHT} image, got {img.size}")
-    header = bytes([MAGIC[0], MAGIC[1], VERSION, flags, brightness & 0xFF, WIDTH, HEIGHT, 0])
+    # Clamp, don't mask: & 0xFF would turn a miswired 300 into "44" (dim) and
+    # -1 into full blast at night.
+    header = bytes([MAGIC[0], MAGIC[1], VERSION, flags, max(0, min(255, brightness)), WIDTH, HEIGHT, 0])
     pixels = bytearray(WIDTH * HEIGHT * 2)
     raw = img.convert("RGB").tobytes()  # r,g,b per pixel, row-major
     for i in range(WIDTH * HEIGHT):

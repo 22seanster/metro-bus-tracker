@@ -27,7 +27,10 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["fonts/*.bdf", "preview/*.html"]
+# firmware/* must ship with the installed package: without it, OTA serving
+# works only because uvicorn's cwd (/srv/app) shadows site-packages — a
+# workdir or server change would silently 404 /firmware.bin.
+app = ["fonts/*.bdf", "preview/*.html", "firmware/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

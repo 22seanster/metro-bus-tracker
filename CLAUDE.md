@@ -25,7 +25,10 @@ copper posts feed the panel's LED power). Hardware assembly is **done and
 verified as of 2026-07-18**; only firmware remains. Moving
 from the old classic-ESP32 target to this ESP32-S3 board requires a PlatformIO
 board change, using the DMA library's **ESP32-S3 default HUB75 pins** (do not
-hardcode the old pins), and setting `mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;`
-(required for the P4 panel). The concrete pin table, init snippet, and the open
-WiFi-under-DMA risk (with the `stopDMAoutput()` mitigation) are in `HARDWARE.md`.
+hardcode the old pins) plus the vendor's three deviations — `cfg.gpio.e = 9`,
+`cfg.clkphase = false`, and `mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;`
+(required for the P4 panel) — and building with USB-CDC serial and DIO/32MB
+flash settings (see `platformio.ini` comments). The concrete pin table, init
+snippet, and the open WiFi-under-DMA risk (with the `stopDMAoutput()`
+mitigation) are in `HARDWARE.md`, including the 2026-07-19 vendor re-check.
 The backend and frame protocol are unaffected.

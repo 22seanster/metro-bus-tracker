@@ -101,6 +101,8 @@ def create_app() -> FastAPI:
         yield
         for t in tasks:
             t.cancel()
+        # Await the cancellations so httpx connections close before the loop does.
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     app = FastAPI(title="Metro Bus Tracker", lifespan=lifespan)
     app.state.engine = engine
@@ -126,8 +128,12 @@ def create_app() -> FastAPI:
         path = ota.firmware_bin_path(ota.FIRMWARE_DIR)
         if path is None:
             raise HTTPException(status_code=404, detail="no firmware bundled")
+        headers = {}
+        md5 = ota.firmware_md5(ota.FIRMWARE_DIR)
+        if md5:
+            headers["x-MD5"] = md5  # HTTPUpdate on the device verifies this
         return FileResponse(path, media_type="application/octet-stream",
-                            filename="firmware.bin")
+                            filename="firmware.bin", headers=headers)
 
     @app.get("/frame.png")
     def frame_png(scale: int = Query(default=8, ge=1, le=16)) -> Response:

@@ -7,12 +7,18 @@ and back off exponentially, capped at the normal poll interval.
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
 BACKOFF_BASE_SECONDS = 5
+
+# Exception messages can embed full request URLs (httpx does), and URLs can
+# carry secrets in their query string. last_error is served on /status and
+# logged, so strip query strings before the message leaves this module.
+_URL_QUERY_RE = re.compile(r"\?[^\s'\"]+")
 
 
 class Provider:
@@ -56,7 +62,7 @@ class Provider:
             self.error_count = 0
         except Exception as e:  # noqa: BLE001 - any fetch failure must not kill the loop
             self.error_count += 1
-            self.last_error = f"{type(e).__name__}: {e}"
+            self.last_error = _URL_QUERY_RE.sub("?<query-redacted>", f"{type(e).__name__}: {e}")
             log.warning("%s fetch failed (attempt %d): %s", self.name, self.error_count, self.last_error)
 
     async def run(self) -> None:

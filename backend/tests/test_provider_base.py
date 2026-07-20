@@ -76,6 +76,16 @@ async def test_backoff_grows_and_resets():
     assert p.error_count == 0
 
 
+async def test_error_messages_redact_url_query_strings():
+    # httpx errors embed full request URLs; a query-string API key must not
+    # reach /status or the logs.
+    err = RuntimeError("Server error '500' for url 'https://api.example.com/feed?subscription-key=SECRET123'")
+    p = FakeProvider([err], FakeClock())
+    await p.refresh_once()
+    assert "SECRET123" not in p.last_error
+    assert "api.example.com" in p.last_error  # the useful part survives
+
+
 async def test_status_dict_shape():
     clock = FakeClock()
     p = FakeProvider(["hello"], clock)

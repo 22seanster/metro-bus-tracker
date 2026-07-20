@@ -5,6 +5,7 @@ ESP32 and any preview browsers concurrently trigger at most ~2 renders/sec.
 Render only reads provider snapshots; it never touches the network.
 """
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -15,14 +16,18 @@ from .frame import compute_brightness, pack_frame
 from .rotation import current_screen
 from .screens.base import Screen
 
+log = logging.getLogger(__name__)
+
 
 class RenderEngine:
     def __init__(self, settings: Settings, screens: list[Screen]):
         self.settings = settings
         self.screens = screens
         self.tz = ZoneInfo(settings.app_tz)
-        self._memo_key: int | None = None
-        self._memo: tuple[Image.Image, int] | None = None
+        # Single attribute, written last: the frame endpoints are sync `def`s,
+        # so FastAPI runs them concurrently in threads. A (key, value) pair in
+        # two attributes could be observed half-updated.
+        self._memo: tuple[int, Image.Image, int] | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.tz)
@@ -31,17 +36,30 @@ class RenderEngine:
         """Returns (64x32 RGB image, brightness)."""
         now = self.now()
         key = int(now.timestamp() * 2)
-        if self._memo is not None and self._memo_key == key:
-            return self._memo
+        memo = self._memo
+        if memo is not None and memo[0] == key:
+            return memo[1], memo[2]
         img = Image.new("RGB", (64, 32))
-        screen = current_screen(now, self.screens)
-        screen.render(img, ImageDraw.Draw(img), now)
+        try:
+            screen = current_screen(now, self.screens)
+            screen.render(img, ImageDraw.Draw(img), now)
+        except Exception:
+            # One screen bug must never turn /frame.bin into a 500 — the device
+            # would silently freeze on its last frame. Fall back to the always-on
+            # clock (registry keeps it last); worst case, serve a blank frame.
+            log.exception("screen render failed; falling back to clock")
+            img = Image.new("RGB", (64, 32))
+            try:
+                self.screens[-1].render(img, ImageDraw.Draw(img), now)
+            except Exception:
+                log.exception("fallback screen render failed; serving blank frame")
+                img = Image.new("RGB", (64, 32))
         s = self.settings
         brightness = compute_brightness(
             now, day=s.brightness, night=s.night_brightness,
             night_start=s.night_start, night_end=s.night_end,
         )
-        self._memo_key, self._memo = key, (img, brightness)
+        self._memo = (key, img, brightness)
         return img, brightness
 
     def frame_bytes(self) -> bytes:

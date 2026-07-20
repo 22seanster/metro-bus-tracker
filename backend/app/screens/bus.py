@@ -37,6 +37,12 @@ class BusScreen:
 
     def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime) -> None:
         arrivals = self.provider.snapshot() or []
+        # Minutes are recomputed from each arrival's epoch at render time, not
+        # taken from Arrival.minutes: that field is frozen at fetch time, so it
+        # drifts up to a poll interval behind, and during a METRO outage the
+        # kept-last-good snapshot would otherwise show "5m" for hours. Arrivals
+        # whose time has passed drop off naturally.
+        now_ts = now.timestamp()
         small = fonts.small()
         tiny = fonts.tiny()
 
@@ -49,7 +55,8 @@ class BusScreen:
             lw = text_width(label, small)
             draw.text((1 + (14 - lw) // 2, y + 3), label, font=small, fill=TEXT_COLOR)
 
-            mins = [a.minutes for a in arrivals if a.route_id == route_id][:MAX_ARRIVALS_PER_ROUTE]
+            mins = [int((a.epoch - now_ts) / 60) for a in arrivals
+                    if a.route_id == route_id and a.epoch >= now_ts][:MAX_ARRIVALS_PER_ROUTE]
             x = 19
             if not mins:
                 draw.text((x, y + 3), "--", font=small, fill=NONE_COLOR)

@@ -139,7 +139,7 @@ For reference, the library's ESP32-S3 default pins (from
 | G1 | 5 | G2 | 15 | B | 8 |
 | B1 | 6 | B2 | 16 | C | 3 |
 | LAT | 40 | OE | 2 | D | 42 |
-| CLK | 41 | | | E | -1 (unused on 64×32) |
+| CLK | 41 | | | E | **9 on this board** (library default -1; see 2026-07-19 re-check) |
 
 Sanity check on first boot: the library logs each GPIO it uses at `begin()` — confirm they match
 this table, and cross-check the current example `.ino` in the Waveshare GitHub repo in case a
@@ -235,6 +235,47 @@ misbehaves in a way the wiring doesn't explain, this is the first thing to
 change.** Bumping it crosses an ESP-IDF major version and would put the
 `esp_ota_*` rollback calls, `HTTPUpdate`, and WiFiManager back in play, so it
 needs a full rebuild and re-verification rather than a one-line edit.
+
+## Vendor documentation re-check (2026-07-19) — GitHub repo findings
+
+A deeper pass against Waveshare's official example repo
+(`github.com/waveshareteam/ESP32-S3-RGB-Matrix`), which turned out to contain the
+board data the wiki omits. These findings are applied in `firmware/` as of this
+date.
+
+- **E is hardwired to GPIO 9.** The wiki publishes no pin table, but the repo
+  does: every Arduino example vendors a patched `esp32s3-default-pins.hpp` with
+  `E_PIN_DEFAULT 9` *and* sets `mxconfig.gpio.e = 9;` explicitly; the IDF
+  example's `sdkconfig.defaults` confirms with `CONFIG_HUB75_PIN_E=9`. The other
+  13 pins match the DMA library's stock ESP32-S3 defaults (table in §2) exactly.
+  The firmware now sets `cfg.gpio.e = 9;` — unused on this 1/16-scan 64×32 panel
+  but correct, and required if a 64-row panel is ever attached.
+- **`clkphase = false`.** Waveshare's examples set `mxconfig.clkphase = false;`;
+  the library default is `true` (inverted pixel clock — it feeds
+  `bus_cfg.invert_pclk` on the S3 code path). Adopted. If the image ever shows a
+  one-column shift or ghost edge pixels, this is the knob that was wrong.
+- **Serial must go over native USB (CDC).** UART0's pins are consumed by onboard
+  peripherals — GPIO 43 (U0TXD) is I2S SCLK, GPIO 44 (U0RXD) is SD CMD — and the
+  board has no USB-UART bridge. The PlatformIO `esp32-s3-devkitc-1` target
+  defaults `ARDUINO_USB_CDC_ON_BOOT=0` (Serial → UART0), which would make every
+  Serial.print invisible. `platformio.ini` now sets
+  `-D ARDUINO_USB_CDC_ON_BOOT=1`, routing Serial to the USB-C port.
+- **Flash is programmed DIO / 32 MB / 80 MHz, not QIO / 8 MB.** The docs never
+  state a flash mode, but the factory-flashed XiaoZhi image's ESP header decodes
+  to DIO, 32 MB, 80 MHz — and *nothing* the vendor ships uses QIO (the other
+  bundled bin is DOUT, which is also what an OPI-flash build stamps). The
+  devkitc-1 board default (QIO/8MB) was therefore unproven on this stacked
+  32 MB flash; `platformio.ini` now pins `flash_mode = dio`,
+  `flash_size = 32MB`, 80 MHz — exactly reproducing the header that is proven to
+  boot on this silicon. The partition table still spans only 8 MB (3 MB per OTA
+  slot is ample at ~1 MB app size); the upper 24 MB is simply unused.
+- **Onboard peripherals share no HUB75 pins.** RTC (PCF85063) / IMU (QMI8658) /
+  SHTC3 sit on I2C 47/48; audio (ES8311/ES7210) on 43/12/38/21/39/11; TF card on
+  17/44/1/14 (MMC-only per the wiki). None collide with the 14 HUB75 GPIOs or
+  the octal flash/PSRAM pins (26–37). GPIO 3 (HUB75 C) is a strapping pin
+  (JTAG-source select) — benign, but worth knowing.
+- **WiFi-under-DMA:** the vendor is silent on the S3 WiFi-vs-DMA EMI question —
+  the §4 risk stands unchanged, neither confirmed nor contradicted.
 
 ## Assembly & first-boot notes — **VERIFIED ON HARDWARE**
 

@@ -88,7 +88,10 @@ problems on this board.
 
 ### Troubleshooting the first boot
 
-Watch the serial monitor at 115200 baud. The firmware prints
+Watch the serial monitor (`pio device monitor`) on the board's **`USB`** USB-C
+port — the board has no USB-UART bridge, so serial output arrives over native
+USB CDC (enabled via `ARDUINO_USB_CDC_ON_BOOT` in `platformio.ini`; without it
+there is no serial output at all). The firmware prints
 `boot: build=<n> sha=<s>` as its first line, so you can always tell which build
 a device is actually running.
 

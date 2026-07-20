@@ -65,9 +65,18 @@ bool displayReady = false;
 static void initDisplay() {
 #ifdef BOARD_S3
   // Waveshare ESP32-S3-RGB-Matrix: keep the DMA library's ESP32-S3 default
-  // HUB75 pins (its examples do the same), and set SHIFTREG for the P4 panel.
+  // HUB75 pins, then apply the two deviations Waveshare's own examples make
+  // (waveshareteam/ESP32-S3-RGB-Matrix, 01_SimpleTestShapes):
+  //  - E is hardwired to GPIO 9 on this board. The stock library default is -1
+  //    (Waveshare patched their vendored copy to 9). Unused on this 1/16-scan
+  //    64x32 panel, but set for correctness and 64-row panel portability.
+  //  - clkphase=false (library default is true -> inverted pixel clock). A
+  //    wrong phase shows as the image shifted by one column / ghost pixels.
+  // SHIFTREG is vendor-required for the P4 panel.
   HUB75_I2S_CFG cfg(PANEL_W, PANEL_H, 1);
   cfg.driver = HUB75_I2S_CFG::SHIFTREG;
+  cfg.gpio.e = 9;
+  cfg.clkphase = false;
 #else
   HUB75_I2S_CFG::i2s_pins pins = {R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN,
                                   A_PIN,  B_PIN,  C_PIN,  D_PIN,  E_PIN,
@@ -154,8 +163,9 @@ static bool fetchAndBlit() {
   uint8_t brightness = header[4];
 
   size_t received = 0;
+  // Rollover-safe deadline, same idiom as the OTA timer in loop().
   uint32_t deadline = millis() + HTTP_TIMEOUT_MS;
-  while (received < PIXEL_BYTES && millis() < deadline) {
+  while (received < PIXEL_BYTES && (int32_t)(millis() - deadline) < 0) {
     size_t n = stream->readBytes(pixelBuf + received, PIXEL_BYTES - received);
     if (n == 0) break;
     received += n;

@@ -80,7 +80,11 @@ class BusProvider(ArrivalStatusMixin, Provider):
 
     async def fetch(self) -> list[Arrival]:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(self.url, params={"subscription-key": self.api_key})
+            # Key travels as a header, never a query param: httpx error messages
+            # embed the full request URL, and refresh_once() publishes those to
+            # /status and the container logs. (METRO's portal is Azure APIM,
+            # which accepts the header form.)
+            r = await client.get(self.url, headers={"Ocp-Apim-Subscription-Key": self.api_key})
             r.raise_for_status()
             return parse_trip_updates(
                 r.content,

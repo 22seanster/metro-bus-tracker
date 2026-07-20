@@ -78,3 +78,18 @@ def test_stale_dot_when_provider_stale():
 def test_no_stale_dot_when_fresh():
     img = render(make_screen(arrivals_sample(), stale=False))
     assert img.getpixel((61, 0)) == (0, 0, 0)
+
+
+def test_minutes_recomputed_from_epoch_not_frozen_field():
+    # The snapshot's minutes field is fetch-time state; render must ignore it
+    # and derive minutes from epoch, or the display drifts between polls.
+    frozen = [Arrival("051", 999, int(NOW.timestamp()) + 240)]
+    fresh = [Arrival("051", 4, int(NOW.timestamp()) + 240)]
+    assert render(make_screen(frozen)).tobytes() == render(make_screen(fresh)).tobytes()
+
+
+def test_passed_arrivals_drop_off():
+    # An arrival whose time already passed (e.g. during a METRO outage with a
+    # kept-last-good snapshot) renders as dashes, same as no arrivals.
+    passed = [Arrival("051", 5, int(NOW.timestamp()) - 60)]
+    assert render(make_screen(passed)).tobytes() == render(make_screen([])).tobytes()

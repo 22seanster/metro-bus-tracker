@@ -1,5 +1,6 @@
 """Firmware release module + OTA endpoints."""
 
+import hashlib
 import json
 
 import pytest
@@ -74,6 +75,12 @@ def test_firmware_bin_served(client):
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/octet-stream"
     assert r.content == b"\x00\x01FIRMWARE"
+    # HTTPUpdate on the device auto-verifies this integrity header
+    assert r.headers["x-md5"] == hashlib.md5(b"\x00\x01FIRMWARE").hexdigest()
+
+
+def test_firmware_md5_absent(tmp_path):
+    assert ota.firmware_md5(tmp_path) is None
 
 
 def test_status_firmware_block_absent(client):
