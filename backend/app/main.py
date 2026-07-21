@@ -83,7 +83,8 @@ def build_screens(settings: Settings, providers: dict[str, Provider]) -> list:
     ]
     if "spotify" in providers:
         screens.append(SpotifyScreen(dwell_seconds=settings.spotify_dwell_seconds,
-                                     provider=providers["spotify"]))
+                                     provider=providers["spotify"],
+                                     scroll=settings.spotify_scroll))
     screens.append(ClockScreen(dwell_seconds=settings.clock_dwell_seconds))
     return screens
 

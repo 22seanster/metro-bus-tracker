@@ -33,13 +33,13 @@ def count_lit(img):
     return sum(1 for v in img.convert("L").tobytes() if v)
 
 
-def screen(np):
-    return SpotifyScreen(dwell_seconds=15, provider=Stub(np))
+def screen(np, scroll=True):
+    return SpotifyScreen(dwell_seconds=15, provider=Stub(np), scroll=scroll)
 
 
-def render(np, elapsed=0.0):
+def render(np, elapsed=0.0, scroll=True):
     img = Image.new("RGB", (64, 32))
-    screen(np).render(img, ImageDraw.Draw(img), NOW, elapsed)
+    screen(np, scroll).render(img, ImageDraw.Draw(img), NOW, elapsed)
     return img
 
 
@@ -119,3 +119,30 @@ def test_hint_is_zero_when_nothing_overflows():
 
 def test_hint_is_zero_when_nothing_is_playing():
     assert screen(None).frame_interval_ms(NOW) == 0
+
+
+# --- kill switch -------------------------------------------------------------
+#
+# SPOTIFY_SCROLL=false must stop the device polling fast, with no rebuild and no
+# OTA — the one recovery lever that works while the new firmware is already out.
+
+
+def test_kill_switch_stops_asking_for_a_fast_cadence():
+    assert screen(make_np(track=LONG_TRACK), scroll=False).frame_interval_ms(NOW) == 0
+
+
+def test_kill_switch_freezes_the_text():
+    np = make_np(track=LONG_TRACK)
+    still = render(np, elapsed=0.0, scroll=False)
+    assert render(np, elapsed=5.0, scroll=False).tobytes() == still.tobytes()
+    assert render(np, elapsed=11.0, scroll=False).tobytes() == still.tobytes()
+
+
+def test_kill_switch_still_shows_the_start_of_the_text():
+    """Frozen, not blank: the head of the line stays readable, just clipped."""
+    np = make_np(track=LONG_TRACK)
+    assert count_lit(render(np, elapsed=5.0, scroll=False)) > 30
+
+
+def test_scrolling_is_on_by_default():
+    assert screen(make_np(track=LONG_TRACK)).frame_interval_ms(NOW) == 50

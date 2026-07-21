@@ -40,15 +40,23 @@ def _overflows(text: str) -> bool:
 class SpotifyScreen:
     name = "spotify"
 
-    def __init__(self, dwell_seconds: int, provider):
+    def __init__(self, dwell_seconds: int, provider, scroll: bool = True):
         self.dwell_seconds = dwell_seconds
         self.provider = provider
+        # Kill switch (SPOTIFY_SCROLL). Turning this off drops the advertised
+        # cadence back to 0, so the device returns to its default poll rate on
+        # the very next frame — no rebuild, no OTA, no reboot. It is the only
+        # recovery lever that works once the fast-polling firmware is already
+        # deployed, so keep it a plain flag with no other behaviour attached.
+        self.scroll = scroll
 
     def is_active(self, now: datetime) -> bool:
         return self.provider.snapshot() is not None
 
     def frame_interval_ms(self, now: datetime) -> int:
         """0 = no preference, so the device stays on its own default poll rate."""
+        if not self.scroll:
+            return 0
         np = self.provider.snapshot()
         if np is None:
             return 0
@@ -70,7 +78,9 @@ class SpotifyScreen:
         tiny = fonts.tiny()
         # Motion comes from elapsed-in-dwell, so the scroll restarts each time the
         # screen comes around rather than dropping in at an arbitrary position.
-        offset = int(max(0.0, elapsed - SCROLL_HOLD_SEC) * SCROLL_PX_PER_SEC)
+        # Pinned at 0 when disabled: long lines freeze showing their head, which
+        # is the pre-scrolling behaviour minus the ".." suffix.
+        offset = int(max(0.0, elapsed - SCROLL_HOLD_SEC) * SCROLL_PX_PER_SEC) if self.scroll else 0
         draw_marquee(img, (TEXT_X, TRACK_Y), np.track, tiny, TRACK_COLOR,
                      TEXT_W, offset=offset, gap=SCROLL_GAP)
         draw_marquee(img, (TEXT_X, ARTIST_Y), np.artists, tiny, ARTIST_COLOR,

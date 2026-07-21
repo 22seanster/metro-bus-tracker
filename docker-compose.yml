@@ -25,3 +25,9 @@ services:
       # and Bluetooth playback both report as the phone, so device names are a poor
       # "am I home?" signal. Presence gating is being solved separately.
       SPOTIFY_DEVICE_ALLOWLIST: ${SPOTIFY_DEVICE_ALLOWLIST:-}
+      # Kill switch for scrolling track/artist text. Scrolling makes the device
+      # poll ~20x/sec while the Spotify screen is up; set false to stop that
+      # instantly (text freezes showing the head of each line) without a rebuild
+      # or an OTA. Must stay listed here: a Portainer stack env var does not
+      # reach the container unless compose references it.
+      SPOTIFY_SCROLL: ${SPOTIFY_SCROLL:-true}

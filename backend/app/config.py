@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # 15s so a worst-case ~60-char track completes a full scroll loop (~13.6s at
     # 20px/sec plus the 1s hold) before the screen rotates away.
     spotify_dwell_seconds: int = Field(default=15, ge=1)
+    # Kill switch. Scrolling makes the device poll ~20x/sec while the Spotify
+    # screen is up; set false to stop that instantly from Portainer without a
+    # rebuild or an OTA. Text then freezes showing the head of each line.
+    spotify_scroll: bool = True
 
     log_level: str = "INFO"
 

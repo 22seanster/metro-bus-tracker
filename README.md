@@ -189,6 +189,25 @@ One-time setup (~10 min):
    leave it empty to show no matter where you're listening. `/status` shows
    what the provider sees.
 
+   Track and artist names that don't fit the 41px text area scroll. That makes
+   the device poll ~20x/sec while the Spotify screen is up (see "Frame poll
+   rate" below). To stop that without a rebuild or an OTA, set
+   `SPOTIFY_SCROLL=false` and redeploy the stack — the text freezes showing the
+   head of each line and the device returns to its 3s poll on the next frame.
+
+### Frame poll rate
+
+Frame header byte `[7]` tells the device how often to poll: `0` means "use your
+built-in default" (3s), anything else is a poll interval in units of 10ms. A
+screen opts in by implementing `frame_interval_ms(now)`; the render engine uses
+that one value both to size its own memo bucket and to fill byte `[7]`, so the
+render cadence and the poll rate can't drift apart. Return `0` unless the screen
+is actually animating — it costs real WiFi traffic.
+
+Firmware clamps whatever it receives to 40-10000ms. The 40ms floor is load
+bearing: `delay()` at the end of `loop()` is the only unconditional yield, so a
+bad hint must not be able to starve the idle task and trip the task watchdog.
+
 ### Adding a screen
 
 1. New provider in `backend/app/providers/` (subclass `Provider`, implement
