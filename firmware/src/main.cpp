@@ -46,7 +46,9 @@ static const uint32_t POLL_MS_DEFAULT = 3000;
 // vTaskDelay(0) does not force one, so a backend bug must never be able to
 // starve the idle task and trip the 5s task watchdog.
 static const uint32_t POLL_MS_MIN = 40;
-static const uint32_t POLL_MS_MAX = 10000;
+// 255 * 10ms is the most byte [7] can express, so this is the true ceiling —
+// not an arbitrary one. The backend sends 0 rather than saturating here.
+static const uint32_t POLL_MS_MAX = 2550;
 static uint32_t pollMs = POLL_MS_DEFAULT;
 static const uint32_t HTTP_TIMEOUT_MS = 5000;
 static const uint8_t MAX_FAILURES_BEFORE_NOTICE = 5;
@@ -60,6 +62,11 @@ static const uint32_t OTA_CHECK_MS = 15UL * 60UL * 1000UL; // 15 min
 static const uint32_t OTA_FIRST_CHECK_MS = 30UL * 1000UL;  // ~30 s after boot
 static uint32_t nextOtaCheck = OTA_FIRST_CHECK_MS;
 static bool firmwareValidated = false;
+// Latched in setup() from the actual OTA partition state. Distinct from
+// firmwareValidated, which only means "a frame has been fetched since boot" —
+// conflating the two would make an ordinary power-cycle into a down server look
+// like a bad image and reboot forever.
+static bool bootIsPendingVerify = false;
 static const uint8_t MAX_OTA_ATTEMPTS = 3;
 
 static const size_t HEADER_SIZE = 8;
@@ -221,12 +228,18 @@ static void ensureWiFi() {
 // permanent; otherwise this is a harmless no-op.
 static void markFirmwareValidIfPending() {
   if (firmwareValidated) return;
-  firmwareValidated = true;
   const esp_partition_t *running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
-  if (esp_ota_get_state_partition(running, &state) == ESP_OK &&
-      state == ESP_OTA_IMG_PENDING_VERIFY) {
+  if (esp_ota_get_state_partition(running, &state) != ESP_OK) {
+    // Transient read failure: leave firmwareValidated false so the next good
+    // frame retries, rather than silently forfeiting this boot's only chance to
+    // confirm the image.
+    return;
+  }
+  firmwareValidated = true;
+  if (state == ESP_OTA_IMG_PENDING_VERIFY) {
     esp_ota_mark_app_valid_cancel_rollback();
+    bootIsPendingVerify = false;  // confirmed; the reboot-for-rollback guard is done
     // This boot is the first good frame fetch after a fresh OTA flash, i.e.
     // the update just succeeded. Clear the retry-tracking state so it doesn't
     // linger forever: a subsequent *failing* release must start its count at
@@ -360,6 +373,18 @@ void setup() {
   if (prefs.getInt("otaFailCount", 0) > 0) {
     nextOtaCheck = OTA_CHECK_MS;
   }
+
+  // Are we running a freshly-OTA'd image that has not been confirmed yet? Only
+  // in that state does rebooting on repeated fetch failures accomplish anything
+  // (it hands control back to the bootloader, which rolls back). On any other
+  // boot there is nothing to roll back to, so rebooting would just loop.
+  {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    bootIsPendingVerify = (esp_ota_get_state_partition(running, &state) == ESP_OK &&
+                           state == ESP_OTA_IMG_PENDING_VERIFY);
+    if (bootIsPendingVerify) Serial.println("booted an unconfirmed image; rollback armed");
+  }
 }
 
 void loop() {
@@ -375,10 +400,12 @@ void loop() {
     if (failures == MAX_FAILURES_BEFORE_NOTICE) {
       showMessage("NO LINK", "CHECK SRV");
     }
-    // Only for an image that has never proven itself: reboot so the bootloader
-    // can roll back to the last known-good one. Gating on !firmwareValidated
-    // matters — an ordinary server outage must not turn into a reboot loop.
-    if (!firmwareValidated && failures >= MAX_FAILURES_BEFORE_UNVALIDATED_REBOOT) {
+    // Only when running a freshly-OTA'd image still awaiting confirmation:
+    // reboot so the bootloader can roll back to the last known-good one.
+    // Gating on the latched partition state, NOT on "have we fetched a frame
+    // yet" — the latter is false on every ordinary boot too, so it would turn
+    // a power-cycle into a down server into an endless reboot loop.
+    if (bootIsPendingVerify && failures >= MAX_FAILURES_BEFORE_UNVALIDATED_REBOOT) {
       Serial.println("unvalidated image cannot fetch frames; rebooting for rollback");
       delay(100);  // let the line flush
       ESP.restart();

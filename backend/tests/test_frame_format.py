@@ -37,11 +37,19 @@ def test_poll_hint_encoded_in_10ms_units():
     assert pack_frame(make_image(), brightness=0, poll_ms=1000)[7] == 100
 
 
-def test_poll_hint_clamped_not_wrapped():
-    # 3000ms doesn't fit a single octet at 10ms units; clamp to the 2550ms ceiling
-    # rather than masking, which would wrap 300 -> 44 (a 440ms poll storm).
-    assert pack_frame(make_image(), brightness=0, poll_ms=3000)[7] == 255
-    assert pack_frame(make_image(), brightness=0, poll_ms=999_999)[7] == 255
+def test_poll_hint_never_wraps():
+    # Masking would wrap 300 -> 44, i.e. a 440ms poll storm from a 3000ms request.
+    assert pack_frame(make_image(), brightness=0, poll_ms=2550)[7] == 255  # the ceiling
+    assert pack_frame(make_image(), brightness=0, poll_ms=2549)[7] == 255
+
+
+def test_unrepresentably_slow_hint_defers_to_the_client_default():
+    """A single octet of 10ms units tops out at 2550ms. Saturating there would
+    make a screen asking for 5s poll *faster* than the 3s default — the opposite
+    of what it asked for. Fall back to 0 ("use your default") instead."""
+    assert pack_frame(make_image(), brightness=0, poll_ms=2551)[7] == 0
+    assert pack_frame(make_image(), brightness=0, poll_ms=3000)[7] == 0
+    assert pack_frame(make_image(), brightness=0, poll_ms=999_999)[7] == 0
 
 
 def test_poll_hint_never_rounds_down_into_the_default_sentinel():

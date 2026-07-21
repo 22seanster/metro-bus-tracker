@@ -25,13 +25,21 @@ MAGIC = b"MB"
 VERSION = 1
 
 
+MAX_POLL_HINT_MS = 2550  # 255 * 10ms — the most a single octet can express
+
+
 def encode_poll_hint(poll_ms: int) -> int:
     """Header byte [7]: 0 = client default, else 10ms units.
 
     Rounds *up* to 1 for any positive request: round(5 / 10) == 0 would silently
     mean "use your 3-second default" — the opposite of asking to poll every 5ms.
+
+    Requests slower than the byte can express fall back to 0 rather than
+    saturating at 255. Saturating would turn "poll every 5s" into 2550ms, which
+    is *faster* than the client's own 3s default — erring toward more traffic
+    when the caller explicitly asked for less.
     """
-    if poll_ms <= 0:
+    if poll_ms <= 0 or poll_ms > MAX_POLL_HINT_MS:
         return 0
     return max(1, min(255, round(poll_ms / 10)))
 

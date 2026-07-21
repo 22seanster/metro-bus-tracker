@@ -152,6 +152,28 @@ def test_memo_hit_returns_the_same_image():
     assert first is second
 
 
+def test_hint_change_takes_effect_even_between_aliasing_values():
+    """`hint or 500` maps 0 and 500 to the same memo divisor, so a screen moving
+    between those two values would keep advertising the stale one."""
+    screen = CountingScreen(hint=500)
+    moment = [T0]
+    eng = engine_at([screen], moment)
+    assert eng.frame_bytes()[7] == 50  # 500ms
+
+    screen._hint = 0
+    moment[0] = T0 + timedelta(milliseconds=200)
+    assert eng.frame_bytes()[7] == 0, "must not serve the stale 500ms hint"
+
+
+def test_empty_registry_serves_a_blank_frame_rather_than_500():
+    """main's engine degraded to a blank frame here; keep that hardening."""
+    eng = engine_at([], [T0])
+    img, _, hint = eng.render_with_hint()
+    assert img.tobytes() == Image.new("RGB", (64, 32)).tobytes()
+    assert hint == 0
+    assert len(eng.frame_bytes()) == 4104
+
+
 def test_elapsed_is_passed_through_to_render():
     seen = []
 

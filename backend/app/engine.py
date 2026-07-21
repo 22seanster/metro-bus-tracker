@@ -67,24 +67,33 @@ class RenderEngine:
     def render_with_hint(self) -> tuple[Image.Image, int, int]:
         """Returns (64x32 RGB image, brightness, cadence hint in ms)."""
         now = self.now()
+        screen, elapsed = None, 0.0
         try:
             screen, elapsed = screen_slot(now, self.screens)
         except Exception:
             # A screen's is_active() raising must not 500 the frame endpoints.
+            # screens[-1] is read defensively: an empty registry must still
+            # degrade to a blank frame rather than an IndexError.
             log.exception("screen selection failed; falling back to clock")
-            screen, elapsed = self.screens[-1], 0.0
+            if self.screens:
+                screen = self.screens[-1]
 
-        hint = self._cadence_hint(screen, now)
-        # The screen name is part of the key: bucket indices are plain integers,
-        # so two screens could otherwise land in the same bucket and be served
-        # each other's pixels.
-        key = (screen.name, int(now.timestamp() * 1000) // (hint or DEFAULT_MEMO_MS))
+        hint = self._cadence_hint(screen, now) if screen is not None else 0
+        # Key carries the screen name AND the hint. The name because bucket
+        # indices are plain integers, so two screens could otherwise land in the
+        # same bucket and be served each other's pixels. The hint because
+        # `hint or DEFAULT_MEMO_MS` aliases 0 and 500 to one divisor, which would
+        # let a screen moving between those two keep advertising the stale one.
+        key = (getattr(screen, "name", ""), hint,
+               int(now.timestamp() * 1000) // (hint or DEFAULT_MEMO_MS))
         memo = self._memo
         if memo is not None and memo[0] == key:
             return memo[1], memo[2], memo[3]
 
         img = Image.new("RGB", (64, 32))
         try:
+            if screen is None:
+                raise RuntimeError("no screens registered")
             screen.render(img, ImageDraw.Draw(img), now, elapsed)
         except Exception:
             # One screen bug must never turn /frame.bin into a 500 — the device

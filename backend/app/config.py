@@ -2,11 +2,14 @@
 that matches Sean's stop: #3216 Lorraine St @ Cochran St, inbound to Downtown TC,
 routes 051/052."""
 
+import logging
 from datetime import time
 from functools import lru_cache
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+
+log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -59,6 +62,28 @@ class Settings(BaseSettings):
     spotify_scroll: bool = True
 
     log_level: str = "INFO"
+
+    @field_validator("spotify_scroll", mode="before")
+    @classmethod
+    def _lenient_bool(cls, v):
+        """Never let a mistyped kill switch take the backend down.
+
+        Settings are built inside create_app(), so a ValidationError here stops
+        /frame.bin entirely and crash-loops the container — the panel goes to
+        NO LINK. That is a catastrophic failure mode for the one lever meant to
+        *recover* from trouble, and Portainer's env editor is a plain text box
+        where trailing spaces and stray quotes are exactly what gets pasted.
+        """
+        if not isinstance(v, str):
+            return v
+        s = v.strip().strip('"').strip("'").strip().lower()
+        if s in {"false", "0", "no", "off", "n", "f"}:
+            return False
+        if s in {"true", "1", "yes", "on", "y", "t"}:
+            return True
+        if s:
+            log.warning("SPOTIFY_SCROLL=%r not understood; leaving scrolling enabled", v)
+        return True
 
     @field_validator("night_start", "night_end")
     @classmethod
