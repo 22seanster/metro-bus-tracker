@@ -59,7 +59,10 @@ static const uint8_t MAX_FAILURES_BEFORE_NOTICE = 5;
 static const uint8_t MAX_FAILURES_BEFORE_UNVALIDATED_REBOOT = 20;
 
 static const uint32_t OTA_CHECK_MS = 15UL * 60UL * 1000UL; // 15 min
-static const uint32_t OTA_FIRST_CHECK_MS = 30UL * 1000UL;  // ~30 s after boot
+// Power-cycling is the user-facing way to say "update now", so this needs to be
+// short enough to feel immediate. It is not zero only so a few frames land
+// first: booting straight into "UPDATING" makes a normal boot look like a hang.
+static const uint32_t OTA_FIRST_CHECK_MS = 10UL * 1000UL;  // ~10 s after boot
 static uint32_t nextOtaCheck = OTA_FIRST_CHECK_MS;
 static bool firmwareValidated = false;
 // Latched in setup() from the actual OTA partition state. Distinct from
@@ -368,11 +371,22 @@ void setup() {
   initDisplay();
   setupWiFi();
 
-  // If the last boot left a nonzero OTA failure count behind, this device
-  // just failed an update - don't hammer it again 30s after reboot.
-  if (prefs.getInt("otaFailCount", 0) > 0) {
-    nextOtaCheck = OTA_CHECK_MS;
-  }
+  // Deliberately NOT delaying the first check when a previous OTA failed.
+  // That gate used to push the first check out to a full OTA_CHECK_MS, but the
+  // counter it read is written *before* each attempt and only cleared inside
+  // markFirmwareValidIfPending's PENDING_VERIFY branch — so one interrupted
+  // update left a nonzero count in NVS indefinitely, and every power-on after
+  // that silently waited 15 minutes before looking for firmware. That made
+  // "unplug it to force an update" quietly not work.
+  //
+  // Nothing is lost by dropping it: checkForUpdate() already caps attempts at
+  // MAX_OTA_ATTEMPTS per *release sha*, which is the check that actually stops
+  // a poisoned build from cycling download/flash/reboot forever. Once that cap
+  // is hit the boot check costs one small latest.json GET and returns.
+  Serial.printf("OTA: first check in %lus (otaFailCount=%d for sha %s)\n",
+                (unsigned long)(OTA_FIRST_CHECK_MS / 1000),
+                prefs.getInt("otaFailCount", 0),
+                prefs.getString("otaFailSha", "(none)").c_str());
 
   // Are we running a freshly-OTA'd image that has not been confirmed yet? Only
   // in that state does rebooting on repeated fetch failures accomplish anything
@@ -436,6 +450,6 @@ void loop() {
   }
 
   // Failure path always uses the slow default: a dead server must not be
-  // hammered 20x/sec just because the last good frame asked for a fast cadence.
+  // hammered 10x/sec just because the last good frame asked for a fast cadence.
   delay(ok ? pollMs : POLL_MS_DEFAULT);
 }
