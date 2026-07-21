@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     spotify_refresh_tokens: str = ""  # "sean:<token>,wife:<token>" - order = priority
     spotify_device_allowlist: str = ""  # "Kitchen Speaker,Living Room TV"; empty = any device
     spotify_poll_seconds: float = 30
-    spotify_dwell_seconds: int = Field(default=10, ge=1)
+    # 15s so a worst-case ~60-char track completes a full scroll loop (~13.6s at
+    # 20px/sec plus the 1s hold) before the screen rotates away.
+    spotify_dwell_seconds: int = Field(default=15, ge=1)
 
     log_level: str = "INFO"
 

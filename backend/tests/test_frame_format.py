@@ -22,7 +22,33 @@ def test_header_layout():
     assert data[4] == 200  # brightness
     assert data[5] == 64  # width
     assert data[6] == 32  # height
-    assert data[7] == 0  # reserved
+    assert data[7] == 0  # poll hint: 0 = client default
+
+
+def test_poll_hint_defaults_to_zero():
+    """0 means "use your built-in default" — what the device has always seen."""
+    assert pack_frame(make_image(), brightness=200)[7] == 0
+    assert pack_frame(make_image(), brightness=200, poll_ms=0)[7] == 0
+    assert pack_frame(make_image(), brightness=200, poll_ms=-10)[7] == 0
+
+
+def test_poll_hint_encoded_in_10ms_units():
+    assert pack_frame(make_image(), brightness=0, poll_ms=50)[7] == 5
+    assert pack_frame(make_image(), brightness=0, poll_ms=1000)[7] == 100
+
+
+def test_poll_hint_clamped_not_wrapped():
+    # 3000ms doesn't fit a single octet at 10ms units; clamp to the 2550ms ceiling
+    # rather than masking, which would wrap 300 -> 44 (a 440ms poll storm).
+    assert pack_frame(make_image(), brightness=0, poll_ms=3000)[7] == 255
+    assert pack_frame(make_image(), brightness=0, poll_ms=999_999)[7] == 255
+
+
+def test_poll_hint_never_rounds_down_into_the_default_sentinel():
+    # round(5/10) == 0 would silently turn "poll every 5ms" into "use your
+    # 3-second default" — the opposite of what was asked for.
+    assert pack_frame(make_image(), brightness=0, poll_ms=5)[7] == 1
+    assert pack_frame(make_image(), brightness=0, poll_ms=1)[7] == 1
 
 
 def test_rgb565_little_endian_packing():

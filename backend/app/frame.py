@@ -7,7 +7,8 @@ Layout (4104 bytes total):
   [4]    brightness 0-255
   [5]    width (64)
   [6]    height (32)
-  [7]    reserved
+  [7]    poll hint: 0 = client uses its own default, else poll interval in
+         units of 10ms (1..255 -> 10..2550ms)
   [8:]   64*32 pixels, RGB565 little-endian, row-major from top-left
 """
 
@@ -24,12 +25,24 @@ MAGIC = b"MB"
 VERSION = 1
 
 
-def pack_frame(img: Image.Image, brightness: int, flags: int = 0) -> bytes:
+def encode_poll_hint(poll_ms: int) -> int:
+    """Header byte [7]: 0 = client default, else 10ms units.
+
+    Rounds *up* to 1 for any positive request: round(5 / 10) == 0 would silently
+    mean "use your 3-second default" — the opposite of asking to poll every 5ms.
+    """
+    if poll_ms <= 0:
+        return 0
+    return max(1, min(255, round(poll_ms / 10)))
+
+
+def pack_frame(img: Image.Image, brightness: int, flags: int = 0, poll_ms: int = 0) -> bytes:
     if img.size != (WIDTH, HEIGHT):
         raise ValueError(f"expected {WIDTH}x{HEIGHT} image, got {img.size}")
     # Clamp, don't mask: & 0xFF would turn a miswired 300 into "44" (dim) and
-    # -1 into full blast at night.
-    header = bytes([MAGIC[0], MAGIC[1], VERSION, flags, max(0, min(255, brightness)), WIDTH, HEIGHT, 0])
+    # -1 into full blast at night. Same reasoning for the poll hint.
+    header = bytes([MAGIC[0], MAGIC[1], VERSION, flags, max(0, min(255, brightness)),
+                    WIDTH, HEIGHT, encode_poll_hint(poll_ms)])
     pixels = bytearray(WIDTH * HEIGHT * 2)
     raw = img.convert("RGB").tobytes()  # r,g,b per pixel, row-major
     for i in range(WIDTH * HEIGHT):

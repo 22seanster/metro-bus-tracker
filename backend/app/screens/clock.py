@@ -20,7 +20,8 @@ class ClockScreen:
     def is_active(self, now: datetime) -> bool:
         return True
 
-    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime) -> None:
+    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime,
+               elapsed: float = 0.0) -> None:
         hour12 = now.hour % 12 or 12
         colon = ":" if now.second % 2 == 0 else " "
         time_text = f"{hour12}{colon}{now.minute:02d}"

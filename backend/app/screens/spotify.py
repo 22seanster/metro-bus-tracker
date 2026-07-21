@@ -1,38 +1,40 @@
-"""Spotify now-playing screen: album art thumbnail + track/artist text."""
+"""Spotify now-playing screen: album art thumbnail + scrolling track/artist.
+
+The text window is only 41px wide at ~4px per character, so most real track
+names overflow. Rather than truncating them with "..", lines that don't fit
+scroll; lines that do fit sit still.
+
+Scrolling costs WiFi traffic — the device has to poll fast enough to animate —
+so frame_interval_ms() asks for the faster cadence only while something is
+actually overflowing.
+"""
 
 from datetime import datetime
+from functools import lru_cache
 
 from PIL import Image, ImageDraw
 
 from .. import fonts, icons
-from ..textdraw import text_width
+from ..textdraw import draw_marquee, text_width
 
 TRACK_COLOR = (255, 255, 255)
 ARTIST_COLOR = (30, 215, 96)  # Spotify green
 TEXT_X = 22
 TEXT_W = 64 - TEXT_X - 1
+TRACK_Y = 11
+ARTIST_Y = 19
+
+SCROLL_FRAME_MS = 50
+SCROLL_PX_PER_SEC = 20  # exactly 1px per frame at SCROLL_FRAME_MS
+SCROLL_GAP = 12  # blank px between the tail and the wrapped head
+SCROLL_HOLD_SEC = 1.0  # pause at the start so the first word is readable
 
 
-def _fit(text: str, font, max_w: int) -> str:
-    if text_width(text, font) <= max_w:
-        return text
-    while text and text_width(text + "..", font) > max_w:
-        text = text[:-1]
-    return text.rstrip() + ".."
-
-
-def wrap_track(track: str, max_w: int, font=None) -> tuple[str, str]:
-    """Wrap onto up to two lines, preserving word order; line 2 is truncated."""
-    font = font or fonts.tiny()
-    words = track.split()
-    line1_words: list[str] = []
-    while words:
-        candidate = " ".join(line1_words + [words[0]])
-        if text_width(candidate, font) > max_w and line1_words:
-            break
-        line1_words.append(words.pop(0))
-    line2 = _fit(" ".join(words), font, max_w) if words else ""
-    return " ".join(line1_words), line2
+@lru_cache(maxsize=64)
+def _overflows(text: str) -> bool:
+    # Cached: this runs on every request, and at a 50ms cadence that is 20x/sec
+    # for a string that only changes when the track does.
+    return text_width(text, fonts.tiny()) > TEXT_W
 
 
 class SpotifyScreen:
@@ -45,7 +47,17 @@ class SpotifyScreen:
     def is_active(self, now: datetime) -> bool:
         return self.provider.snapshot() is not None
 
-    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime) -> None:
+    def frame_interval_ms(self, now: datetime) -> int:
+        """0 = no preference, so the device stays on its own default poll rate."""
+        np = self.provider.snapshot()
+        if np is None:
+            return 0
+        if _overflows(np.track) or _overflows(np.artists):
+            return SCROLL_FRAME_MS
+        return 0
+
+    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime,
+               elapsed: float = 0.0) -> None:
         np = self.provider.snapshot()
         if np is None:
             return
@@ -56,15 +68,13 @@ class SpotifyScreen:
             draw.rectangle([3, 8, 18, 23], outline=(80, 80, 80))
 
         tiny = fonts.tiny()
-        # Track: up to two tiny lines, then artist line in Spotify green
-        line1, line2 = wrap_track(np.track, TEXT_W, tiny)
-
-        y = 6 if line2 else 9
-        draw.text((TEXT_X, y), line1, font=tiny, fill=TRACK_COLOR)
-        if line2:
-            draw.text((TEXT_X, y + 7), line2, font=tiny, fill=TRACK_COLOR)
-        draw.text((TEXT_X, y + (14 if line2 else 8)), _fit(np.artists, tiny, TEXT_W),
-                  font=tiny, fill=ARTIST_COLOR)
+        # Motion comes from elapsed-in-dwell, so the scroll restarts each time the
+        # screen comes around rather than dropping in at an arbitrary position.
+        offset = int(max(0.0, elapsed - SCROLL_HOLD_SEC) * SCROLL_PX_PER_SEC)
+        draw_marquee(img, (TEXT_X, TRACK_Y), np.track, tiny, TRACK_COLOR,
+                     TEXT_W, offset=offset, gap=SCROLL_GAP)
+        draw_marquee(img, (TEXT_X, ARTIST_Y), np.artists, tiny, ARTIST_COLOR,
+                     TEXT_W, offset=offset, gap=SCROLL_GAP)
 
         if self.provider.is_stale():
             icons.draw_stale_dot(draw)

@@ -35,7 +35,8 @@ class BusScreen:
     def is_active(self, now: datetime) -> bool:
         return bool(self.provider.snapshot())
 
-    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime) -> None:
+    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime,
+               elapsed: float = 0.0) -> None:
         arrivals = self.provider.snapshot() or []
         # Minutes are recomputed from each arrival's epoch at render time, not
         # taken from Arrival.minutes: that field is frozen at fetch time, so it

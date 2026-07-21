@@ -21,7 +21,8 @@ class WeatherScreen:
     def is_active(self, now: datetime) -> bool:
         return self.provider.snapshot() is not None
 
-    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime) -> None:
+    def render(self, img: Image.Image, draw: ImageDraw.ImageDraw, now: datetime,
+               elapsed: float = 0.0) -> None:
         w = self.provider.snapshot()
         if w is None:
             small = fonts.small()

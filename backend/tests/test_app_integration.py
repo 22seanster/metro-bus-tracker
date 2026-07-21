@@ -1,11 +1,14 @@
 """App-level smoke tests: full stack with MOCK=true, no network."""
 
+import inspect
 import time
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image, ImageDraw
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 
 
 @pytest.fixture
@@ -56,3 +59,32 @@ def test_frame_png_and_preview(client):
 def test_frame_not_blank(client):
     b = client.get("/frame.bin").content
     assert any(v != 0 for v in b[8:])
+
+
+def test_default_frame_carries_no_poll_hint(client):
+    """Byte [7] stays 0 unless a screen actually asks for a faster cadence, so
+    bus/weather/clock never speed the device up."""
+    b = client.get("/frame.bin").content
+    hints = {client.get("/frame.bin").content[7] for _ in range(5)}
+    assert hints <= {0, 5}  # 0 normally, 5 only while a long Spotify line scrolls
+    assert b[7] in (0, 5)
+
+
+def test_every_screen_accepts_the_elapsed_argument(monkeypatch):
+    """The engine calls render(img, draw, now, elapsed). A screen still on the
+    old 3-arg signature would raise TypeError, which engine.render() swallows —
+    turning that screen silently blank instead of failing loudly. Bind the real
+    call signature here so that can't ship."""
+    monkeypatch.setenv("MOCK", "true")
+    get_settings.cache_clear()
+    from app.main import build_providers, build_screens
+
+    settings = Settings()
+    screens = build_screens(settings, build_providers(settings))
+    assert screens, "registry should not be empty"
+
+    img = Image.new("RGB", (64, 32))
+    args = (img, ImageDraw.Draw(img), datetime.now(timezone.utc), 0.0)
+    for screen in screens:
+        inspect.signature(screen.render).bind(*args)
+    get_settings.cache_clear()

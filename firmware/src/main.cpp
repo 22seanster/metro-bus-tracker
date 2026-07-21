@@ -1,9 +1,9 @@
 // Metro Bus Tracker display client.
 //
-// Dumb client: every POLL_MS it GETs FRAME_URL (a 4104-byte binary frame:
-// 8-byte header + 64x32 RGB565 little-endian pixels) and blits it to a HUB75
-// panel. All layout/data logic lives in the backend; reflashing is never
-// needed for new screens.
+// Dumb client: it GETs FRAME_URL (a 4104-byte binary frame: 8-byte header +
+// 64x32 RGB565 little-endian pixels) and blits it to a HUB75 panel, at a
+// cadence the backend advertises in header byte [7]. All layout/data logic
+// lives in the backend; reflashing is never needed for new screens.
 //
 // First boot: opens a WiFi access point "BusTracker-Setup". Join it from a
 // phone, pick your WiFi, and set the backend frame URL, e.g.
@@ -38,9 +38,23 @@ static const char FW_VERSION_MARKER[] __attribute__((used)) =
 
 static const uint16_t PANEL_W = 64;
 static const uint16_t PANEL_H = 32;
-static const uint32_t POLL_MS = 3000;
+// Poll cadence. The backend advertises one in header byte [7] (0 = "use your
+// default", else 10ms units) so animated screens can ask us to keep up without
+// paying for a fast poll the rest of the time.
+static const uint32_t POLL_MS_DEFAULT = 3000;
+// Hard floor. delay() below is loop()'s only unconditional yield, and
+// vTaskDelay(0) does not force one, so a backend bug must never be able to
+// starve the idle task and trip the 5s task watchdog.
+static const uint32_t POLL_MS_MIN = 40;
+static const uint32_t POLL_MS_MAX = 10000;
+static uint32_t pollMs = POLL_MS_DEFAULT;
 static const uint32_t HTTP_TIMEOUT_MS = 5000;
 static const uint8_t MAX_FAILURES_BEFORE_NOTICE = 5;
+// An image that cannot fetch frames never validates (see
+// markFirmwareValidIfPending), and without a reboot the bootloader never gets
+// to roll it back. Reboot an unproven image after this many failures so the
+// rollback can actually happen.
+static const uint8_t MAX_FAILURES_BEFORE_UNVALIDATED_REBOOT = 20;
 
 static const uint32_t OTA_CHECK_MS = 15UL * 60UL * 1000UL; // 15 min
 static const uint32_t OTA_FIRST_CHECK_MS = 30UL * 1000UL;  // ~30 s after boot
@@ -161,6 +175,10 @@ static bool fetchAndBlit() {
     return false;
   }
   uint8_t brightness = header[4];
+  // Only updated behind a valid header, so a failed fetch keeps the last good
+  // cadence rather than inheriting garbage.
+  pollMs = header[7] ? constrain((uint32_t)header[7] * 10UL, POLL_MS_MIN, POLL_MS_MAX)
+                     : POLL_MS_DEFAULT;
 
   size_t received = 0;
   // Rollover-safe deadline, same idiom as the OTA timer in loop().
@@ -347,7 +365,8 @@ void setup() {
 void loop() {
   ensureWiFi();
 
-  if (fetchAndBlit()) {
+  bool ok = fetchAndBlit();
+  if (ok) {
     failures = 0;
     markFirmwareValidIfPending();
   } else {
@@ -355,6 +374,14 @@ void loop() {
     Serial.printf("frame fetch failed (%d in a row) from %s\n", failures, frameUrl);
     if (failures == MAX_FAILURES_BEFORE_NOTICE) {
       showMessage("NO LINK", "CHECK SRV");
+    }
+    // Only for an image that has never proven itself: reboot so the bootloader
+    // can roll back to the last known-good one. Gating on !firmwareValidated
+    // matters — an ordinary server outage must not turn into a reboot loop.
+    if (!firmwareValidated && failures >= MAX_FAILURES_BEFORE_UNVALIDATED_REBOOT) {
+      Serial.println("unvalidated image cannot fetch frames; rebooting for rollback");
+      delay(100);  // let the line flush
+      ESP.restart();
     }
   }
 
@@ -381,5 +408,7 @@ void loop() {
     // momentarily down retries promptly instead of waiting a full 15 min.
   }
 
-  delay(POLL_MS);
+  // Failure path always uses the slow default: a dead server must not be
+  // hammered 20x/sec just because the last good frame asked for a fast cadence.
+  delay(ok ? pollMs : POLL_MS_DEFAULT);
 }

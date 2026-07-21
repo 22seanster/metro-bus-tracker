@@ -13,7 +13,7 @@ class BoomScreen:
     def is_active(self, now):
         return True
 
-    def render(self, img, draw, now):
+    def render(self, img, draw, now, elapsed=0.0):
         raise RuntimeError("boom")
 
 
@@ -24,14 +24,14 @@ class SafeScreen:
     def is_active(self, now):
         return False  # rotation only reaches it via the screens[-1] fallback
 
-    def render(self, img, draw, now):
+    def render(self, img, draw, now, elapsed=0.0):
         draw.point((0, 0), fill=(255, 255, 255))
 
 
 class DoubleBoomScreen(SafeScreen):
     name = "doubleboom"
 
-    def render(self, img, draw, now):
+    def render(self, img, draw, now, elapsed=0.0):
         raise RuntimeError("fallback boom")
 
 
