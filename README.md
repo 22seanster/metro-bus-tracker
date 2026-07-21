@@ -190,7 +190,7 @@ One-time setup (~10 min):
    what the provider sees.
 
    Track and artist names that don't fit the 41px text area scroll. That makes
-   the device poll ~20x/sec while the Spotify screen is up (see "Frame poll
+   the device poll ~10x/sec while the Spotify screen is up (see "Frame poll
    rate" below). To stop that without a rebuild or an OTA, set
    `SPOTIFY_SCROLL=false` and redeploy the stack — the text freezes showing the
    head of each line and the device returns to its 3s poll on the next frame.
@@ -204,9 +204,12 @@ that one value both to size its own memo bucket and to fill byte `[7]`, so the
 render cadence and the poll rate can't drift apart. Return `0` unless the screen
 is actually animating — it costs real WiFi traffic.
 
-Firmware clamps whatever it receives to 40-10000ms. The 40ms floor is load
+Firmware clamps whatever it receives to 40-2550ms. The 40ms floor is load
 bearing: `delay()` at the end of `loop()` is the only unconditional yield, so a
 bad hint must not be able to starve the idle task and trip the task watchdog.
+The 2550ms ceiling isn't a policy choice — it's the largest value byte `[7]` can
+express (255 × 10ms). A screen wanting to poll slower than that sends `0` and
+gets the 3s default rather than saturating at the ceiling.
 
 ### Adding a screen
 

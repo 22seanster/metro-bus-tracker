@@ -10,7 +10,7 @@ from app.config import Settings
 
 # --- SPOTIFY_SCROLL kill switch ---------------------------------------------
 #
-# This is the emergency lever for stopping 20x/sec polling once the fast-polling
+# This is the emergency lever for stopping 10x/sec polling once the fast-polling
 # firmware is deployed. Settings are built inside create_app(), so a
 # ValidationError here takes the WHOLE backend down and crash-loops the
 # container -- the panel goes to NO LINK. A fat-fingered kill switch must

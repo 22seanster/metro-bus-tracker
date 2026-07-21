@@ -24,15 +24,15 @@ TEXT_W = 64 - TEXT_X - 1
 TRACK_Y = 11
 ARTIST_Y = 19
 
-SCROLL_FRAME_MS = 50
-SCROLL_PX_PER_SEC = 20  # exactly 1px per frame at SCROLL_FRAME_MS
+SCROLL_FRAME_MS = 100
+SCROLL_PX_PER_SEC = 10  # exactly 1px per frame at SCROLL_FRAME_MS
 SCROLL_GAP = 12  # blank px between the tail and the wrapped head
 SCROLL_HOLD_SEC = 1.0  # pause at the start so the first word is readable
 
 
 @lru_cache(maxsize=64)
 def _overflows(text: str) -> bool:
-    # Cached: this runs on every request, and at a 50ms cadence that is 20x/sec
+    # Cached: this runs on every request, and at a 100ms cadence that is 10x/sec
     # for a string that only changes when the track does.
     return text_width(text, fonts.tiny()) > TEXT_W
 

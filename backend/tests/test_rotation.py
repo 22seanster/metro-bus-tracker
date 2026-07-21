@@ -69,7 +69,7 @@ def test_slot_elapsed_resets_at_each_screen_boundary():
 
 
 def test_slot_elapsed_keeps_sub_second_resolution():
-    """A 20px/sec scroll needs finer than whole seconds; the old int() truncation
+    """A 10px/sec scroll needs finer than whole seconds; the old int() truncation
     would have pinned the animation to 1fps."""
     a = FakeScreen("a", 10)
     _, elapsed = screen_slot(at_epoch(3.25), [a])

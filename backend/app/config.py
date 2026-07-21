@@ -53,10 +53,15 @@ class Settings(BaseSettings):
     spotify_refresh_tokens: str = ""  # "sean:<token>,wife:<token>" - order = priority
     spotify_device_allowlist: str = ""  # "Kitchen Speaker,Living Room TV"; empty = any device
     spotify_poll_seconds: float = 30
-    # 15s so a worst-case ~60-char track completes a full scroll loop (~13.6s at
-    # 20px/sec plus the 1s hold) before the screen rotates away.
-    spotify_dwell_seconds: int = Field(default=15, ge=1)
-    # Kill switch. Scrolling makes the device poll ~20x/sec while the Spotify
+    # A deliberate compromise. At 10px/sec a worst-case ~60-char track needs
+    # ~26s to complete a full scroll loop, and dwelling that long would let the
+    # Spotify screen crowd out bus and weather whenever music is playing. 20s
+    # gets typical track names all the way through; genuinely long ones rotate
+    # away mid-scroll and restart from the head next time the screen comes
+    # around. The cutoff lands around 44 characters. Raise this toward 27 if you
+    # would rather always see the tail.
+    spotify_dwell_seconds: int = Field(default=20, ge=1)
+    # Kill switch. Scrolling makes the device poll ~10x/sec while the Spotify
     # screen is up; set false to stop that instantly from Portainer without a
     # rebuild or an OTA. Text then freezes showing the head of each line.
     spotify_scroll: bool = True

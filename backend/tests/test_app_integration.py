@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from app.config import Settings, get_settings
+from app.screens.spotify import SCROLL_FRAME_MS
 
 
 @pytest.fixture
@@ -64,10 +65,12 @@ def test_frame_not_blank(client):
 def test_default_frame_carries_no_poll_hint(client):
     """Byte [7] stays 0 unless a screen actually asks for a faster cadence, so
     bus/weather/clock never speed the device up."""
+    scroll_hint = SCROLL_FRAME_MS // 10  # byte [7] is in 10ms units
     b = client.get("/frame.bin").content
     hints = {client.get("/frame.bin").content[7] for _ in range(5)}
-    assert hints <= {0, 5}  # 0 normally, 5 only while a long Spotify line scrolls
-    assert b[7] in (0, 5)
+    # 0 normally, scroll_hint only while a long Spotify line is scrolling
+    assert hints <= {0, scroll_hint}
+    assert b[7] in (0, scroll_hint)
 
 
 def test_every_screen_accepts_the_elapsed_argument(monkeypatch):

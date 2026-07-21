@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw
 
 from app import fonts
 from app.providers.spotify import NowPlaying
-from app.screens.spotify import SpotifyScreen
+from app.screens.spotify import SCROLL_FRAME_MS, SpotifyScreen
 from app.textdraw import draw_marquee, draw_scaled_text, safe_text, text_width
 
 NOW = datetime(2026, 7, 20, 20, 0, tzinfo=timezone.utc)
@@ -85,7 +85,7 @@ def test_track_with_a_curly_apostrophe_actually_renders():
                     device_name="HomePod", is_playing=True, art=None)
     screen = SpotifyScreen(dwell_seconds=15, provider=Stub(np))
 
-    assert screen.frame_interval_ms(NOW) == 50  # long -> scrolls, and doesn't raise
+    assert screen.frame_interval_ms(NOW) == SCROLL_FRAME_MS  # long -> scrolls, doesn't raise
     img = Image.new("RGB", (64, 32))
     screen.render(img, ImageDraw.Draw(img), NOW, 2.0)
     assert sum(1 for v in img.convert("L").tobytes() if v) > 30  # text really drawn

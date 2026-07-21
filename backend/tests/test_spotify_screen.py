@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from PIL import Image, ImageDraw
 
 from app.providers.spotify import NowPlaying
-from app.screens.spotify import SpotifyScreen
+from app.screens.spotify import SCROLL_FRAME_MS, SpotifyScreen
 
 NOW = datetime(2026, 7, 7, 20, 0, tzinfo=timezone.utc)
 
@@ -107,8 +107,8 @@ def test_scrolling_text_never_touches_the_album_art():
 
 
 def test_hint_requests_a_fast_cadence_only_while_scrolling():
-    assert screen(make_np(track=LONG_TRACK)).frame_interval_ms(NOW) == 50
-    assert screen(make_np(track="Short", artists=LONG_ARTIST)).frame_interval_ms(NOW) == 50
+    assert screen(make_np(track=LONG_TRACK)).frame_interval_ms(NOW) == SCROLL_FRAME_MS
+    assert screen(make_np(track="Short", artists=LONG_ARTIST)).frame_interval_ms(NOW) == SCROLL_FRAME_MS
 
 
 def test_hint_is_zero_when_nothing_overflows():
@@ -145,4 +145,4 @@ def test_kill_switch_still_shows_the_start_of_the_text():
 
 
 def test_scrolling_is_on_by_default():
-    assert screen(make_np(track=LONG_TRACK)).frame_interval_ms(NOW) == 50
+    assert screen(make_np(track=LONG_TRACK)).frame_interval_ms(NOW) == SCROLL_FRAME_MS
